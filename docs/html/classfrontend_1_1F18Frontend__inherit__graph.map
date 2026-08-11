@@ -1,0 +1,5 @@
+<map id="frontend::F18Frontend" name="frontend::F18Frontend">
+<area shape="rect" id="Node000001" title=" " alt="" coords="22,79,189,104"/>
+<area shape="rect" id="Node000002" href="$classfrontend_1_1FrontendInterface.html" title="Abstract class with the specification required for adding dialect frontends." alt="" coords="5,5,205,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="108,44,108,79,103,79,103,44"/>
+</map>

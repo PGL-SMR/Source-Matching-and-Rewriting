@@ -1,0 +1,4 @@
+*:*llvm* // Ignore llvm headers warnings.
+*:*tests* // Ignore all test files warnings.
+missingIncludeSystem
+unmatchedSuppression

@@ -1,0 +1,8 @@
+build/
+*.pyc
+.vscode
+env
+env.sh
+.cache/
+compile_commands.json
+artifacts/

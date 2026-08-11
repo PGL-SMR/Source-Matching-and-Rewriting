@@ -1,0 +1,3 @@
+#pragma once
+
+#define SMR_VERSION_STRING "@CMAKE_PROJECT_VERSION@"

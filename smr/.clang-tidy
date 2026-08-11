@@ -1,0 +1,18 @@
+Checks: "*,-fuchsia-*,-google-*,-zircon-*,-abseil-*,-boost-*,-modernize-use-trailing-return-type,-llvm-*,-llvmlibc-*,-altera-*,-hicpp-*,-bugprone-assignment-in-if-condition,-misc-no-recursion,-cppcoreguidelines-pro-type-reinterpret-cast,-performance-no-int-to-ptr,-bugprone-easily-swappable-parameters,-cert-env33-c,-cppcoreguidelines-macro-usage,-cppcoreguidelines-macro-to-enum,-modernize-macro-to-enum,-misc-const-correctness"
+CheckOptions:
+  concurrency-mt-unsafe.FunctionSet: "posix"
+  readability-braces-around-statements.ShortStatementLines: 2
+  readability-identifier-length.IgnoredParameterNames: "ar|Ar|Id|Op"
+  readability-identifier-length.IgnoredVariableNames: "Op|Ip|Id"
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.MemberCase: CamelCase
+  readability-identifier-naming.ParameterCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
+  readability-identifier-naming.VariableCase: CamelCase
+  readability-identifier-naming.VariableIgnoredRegexp: 'i|j|k'
+  readability-redundant-member-init.IgnoreBaseInCopyConstructors: 1
+WarningsAsErrors: "*"
+HeaderFilterRegex: "smr/.*"
+FormatStyle: llvm

@@ -1,0 +1,9 @@
+<map id="frontend::FrontendInterface" name="frontend::FrontendInterface">
+<area shape="rect" id="Node000001" title="Abstract class with the specification required for adding dialect frontends." alt="" coords="163,5,363,31"/>
+<area shape="rect" id="Node000002" href="$classfrontend_1_1CFrontend.html" title=" " alt="" coords="5,79,156,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="222,38,112,81,110,76,220,33"/>
+<area shape="rect" id="Node000003" href="$classfrontend_1_1F18Frontend.html" title=" " alt="" coords="180,79,347,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="266,44,266,79,261,79,261,44"/>
+<area shape="rect" id="Node000004" href="$classfrontend_1_1PolygeistFrontend.html" title=" " alt="" coords="371,79,574,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="311,33,440,76,438,81,309,38"/>
+</map>

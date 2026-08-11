@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  dev:
+    hostname: dev
+    image: sitio/smr-dev
+    volumes:
+      - ../:/root/smr
+    entrypoint: tail -f /dev/null
