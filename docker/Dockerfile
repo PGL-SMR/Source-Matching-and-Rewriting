@@ -51,5 +51,4 @@ RUN ln -s ${LLVM_INST_DIR}/bin/flang-new ${LLVM_INST_DIR}/bin/flang
 
 WORKDIR /root
 
-# start bash session
 CMD bash

@@ -245,7 +245,6 @@ flang-new test-opt.o -lopenblas -o test-opt
 
 If you intend to handle multiple input files, you can use the --compile option to pre-compile source code files to their MLIR counterparts:
 
-
 ```bash
 smr --compile test1.c test2.c test3.c
 ```
