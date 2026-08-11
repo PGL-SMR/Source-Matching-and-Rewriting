@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar dependências básicas
+# Install basic dependencies
 RUN apt-get update && apt-get install -y \
     cmake \
     git \
@@ -14,14 +14,14 @@ RUN apt-get update && apt-get install -y \
     wget \
  && rm -rf /var/lib/apt/lists/*
 
-# Instalar LLVM/Clang via script oficial
+# Install LLVM/Clang
 WORKDIR /tmp
 RUN wget https://apt.llvm.org/llvm.sh \
  && chmod +x llvm.sh \
  && ./llvm.sh 20 \
  && rm llvm.sh
 
-# Clonar clangir (llvm-project)
+# Clone clangir (llvm-project)
 WORKDIR /opt
 RUN git clone --filter=blob:none https://github.com/llvm/clangir.git llvm-project
 

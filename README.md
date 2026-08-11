@@ -256,6 +256,10 @@ smr --compile test1.c test2.c test3.c
 
     - A domain-specific tool designed to work in conjunction with SMR. It simplifies and automates the creation of .pat pattern files, enabling high-level pattern descriptions without requiring users to manually construct verbose match-and-rewrite syntax.
 
+- [SMR Artifacts](https://github.com/PGL-SMR/SMR-artifacts):
+
+    - A repository containing tests with [Anghabench](https://github.com/brenocfg/AnghaBench) and [Polybench](https://www.cs.colostate.edu/~pouchet/software/polybench/).
+
 - [Source Matching and Rewriting for MLIR Using String-Based Automata](https://dl.acm.org/doi/full/10.1145/3571283):
 
     ```
