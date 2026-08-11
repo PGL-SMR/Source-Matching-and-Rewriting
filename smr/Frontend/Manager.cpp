@@ -13,6 +13,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Visitors.h>
 #include <string>
+#include <unistd.h>
 
 namespace frontend {
 
@@ -56,19 +57,28 @@ int Manager::compile(const std::string &Lang, std::string &Code) {
   if ((Frontend = getFrontend(Lang)) == nullptr)
     return Msg::FRONT_USUPP_LANG;
 
-  // Create a temporary file.
-  auto TempName = std::string(std::tmpnam(nullptr));
-  std::fstream TempFile(TempName, std::ios::out);
+  // Criação segura de arquivo temporário com mkstemp
+  char TempTemplate[] = "/tmp/frontend_XXXXXX";
+  int Fd = mkstemp(TempTemplate);
 
-  // Failed to create file: log and return error.
+  if (Fd == -1) {
+    error(Msg::FAIL_CREATE_FILE, TempTemplate);
+    return Msg::FAIL_CREATE_FILE;
+  }
+
+  std::string TempName(TempTemplate);
+  
+  // Escreve o código no arquivo e fecha o descriptor de arquivo
+  std::fstream TempFile(TempName, std::ios::out);
   if (!TempFile.is_open()) {
+    close(Fd);
     error(Msg::FAIL_CREATE_FILE, TempName);
     return Msg::FAIL_CREATE_FILE;
   }
 
-  // Write source code to temporary block.
   TempFile << Code;
   TempFile.close();
+  close(Fd);
 
   // Fetch a frontend connector to compile the source code.
   auto Command = Frontend->getCommand(TempName);
@@ -76,6 +86,7 @@ int Manager::compile(const std::string &Lang, std::string &Code) {
   // Attempt to compile file.
   FILE *Pipe = popen(Command.c_str(), "r");
   if (Pipe == nullptr) {
+    std::remove(TempName.c_str()); // Limpa o arquivo temporário
     error(Msg::FAIL_COMPILE_CMD, Command);
     return Msg::FAIL_COMPILE_CMD;
   }
@@ -85,6 +96,9 @@ int Manager::compile(const std::string &Lang, std::string &Code) {
   while (fgets(Buffer.data(), BUFF_SIZE, Pipe) != nullptr)
     Code += Buffer.data();
   pclose(Pipe);
+
+  // Remove o arquivo temporário após o término do uso
+  std::remove(TempName.c_str());
 
   // Return success.
   return EXIT_SUCCESS;

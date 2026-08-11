@@ -1,6 +1,6 @@
 # SMR
 
-**Source-based Matching and Rewriting (SMR)** is an CLI tool designed for automated source-to-source pattern matching and code transformation in C. Built on top of the MLIR framework, SMR enables detection of code idioms and replaces them with high-performance implementations directly at the source level.
+**Source-based Matching and Rewriting (SMR)** is an CLI tool designed for automated source-to-source pattern matching and code transformation in **C** and **Fortran 90**. Built on top of the MLIR framework, SMR enables detection of code idioms and replaces them with high-performance implementations directly at the source level.
 
 # Prerequisites & Installation
 
@@ -57,7 +57,7 @@ ninja -C /opt/llvm-project/build install
 ### Clone and build SMR:
 
 ```bash
-git clone https://github.com/PGL-SMR/SMR
+git clone https://github.com/PGL-SMR/Source-Matching-and-Rewriting
 cd Source-Matching-and-Rewriting
 mkdir -p ./build
 cmake -G Ninja  -B ./build \
@@ -154,11 +154,90 @@ smr test.c test.opat -o test-opt.mlir
 
 ## Lowering to Binary
 
-To lower the generated MLIR code to binary using Clang and link against OpenBLAS:
+To lower the generated CIR's MLIR code to binary using Clang and link against OpenBLAS:
 
 ```bash
 cir-translate --cir-to-llvmir test-opt.mlir -o test-opt.ll
 clang test-opt.ll -lopenblas -o test-opt
+./test-opt
+```
+
+## Usage with Fortran
+
+Suppose we have a test.f90 input code:
+
+```fortran
+subroutine gemm_double(n, a, b, c)
+    implicit none
+    integer, intent(in) :: n
+    double precision, intent(in) :: a(n, n), b(n, n)
+    double precision, intent(inout) :: c(n, n)
+    integer :: i, j, k
+
+    do i = 1, n
+        do j = 1, n
+            do k = 1, n
+                c(i, j) = c(i, j) + a(i, k) * b(k, j)
+            end do
+        end do
+    end do
+end subroutine gemm_double
+
+program main
+    implicit none
+    integer, parameter :: n = 3
+    double precision :: a(n, n) = reshape([1.0d0, 4.0d0, 7.0d0, &
+                                           2.0d0, 5.0d0, 8.0d0, &
+                                           3.0d0, 6.0d0, 9.0d0], [n, n])
+    double precision :: b(n, n) = reshape([10.0d0, 13.0d0, 16.0d0, &
+                                           11.0d0, 14.0d0, 17.0d0, &
+                                           12.0d0, 15.0d0, 18.0d0], [n, n])
+    double precision :: c(n, n) = 0.0d0
+    integer :: i, j
+
+    call gemm_double(n, a, b, c)
+
+    print *, "Result:"
+    do i = 1, n
+        write(*, '(3F8.2)') (c(i, j), j = 1, n)
+    end do
+end program main
+```
+
+And the following test.pat:
+
+```fortran
+f90 {
+subroutine dgemm_pat(n, a, b, c)
+    integer :: n
+    double precision :: a(n, n), b(n, n), c(n, n)
+    integer :: i, j, k
+    do i = 1, n
+        do j = 1, n
+            do k = 1, n
+                c(i, j) = c(i, j) + a(i, k) * b(k, j)
+            end do
+        end do
+    end do
+end subroutine dgemm_pat
+}={
+subroutine dgemm_pat(n, a, b, c)
+    integer :: n
+    double precision :: a(n, n), b(n, n), c(n, n)
+    external dgemm
+    call dgemm('N', 'N', n, n, n, 1.0d0, a, n, b, n, 1.0d0, c, n)
+end subroutine dgemm_pat
+}
+```
+
+You can follow the same process with smr to generate a optmized FIR's MLIR code, and do the following to lower the code to binary:
+
+```bash
+smr test.f90 test.pat -o test-opt.mlir
+tco test-opt.mlir -o test-opt.ll
+llc test-opt.ll -relocation-model=pic -O3 -filetype=obj -o test-opt.o
+objcopy test-opt.o --redefine-sym _QPdgemm=dgemm_
+flang-new test-opt.o -lopenblas -o test-opt
 ./test-opt
 ```
 
@@ -181,20 +260,20 @@ smr --compile test1.c test2.c test3.c
 
     ```
     @article{10.1145/3571283,
-    author = {Espindola, Vinicius and Zago, Luciano and Yviquel, Hervé and Araujo, Guido},
-    title = {Source Matching and Rewriting for MLIR Using String-Based Automata},
-    year = {2023},
-    issue_date = {June 2023},
-    publisher = {Association for Computing Machinery},
-    address = {New York, NY, USA},
-    volume = {20},
-    number = {2},
-    issn = {1544-3566},
-    url = {https://doi.org/10.1145/3571283},
-    doi = {10.1145/3571283},
-    month = mar,
-    articleno = {22},
-    numpages = {26},
-    keywords = {Idiom recognition, automata, MLIR, rewriting, hardware accelerators}
+        author = {Espindola, Vinicius and Zago, Luciano and Yviquel, Hervé and Araujo, Guido},
+        title = {Source Matching and Rewriting for MLIR Using String-Based Automata},
+        year = {2023},
+        issue_date = {June 2023},
+        publisher = {Association for Computing Machinery},
+        address = {New York, NY, USA},
+        volume = {20},
+        number = {2},
+        issn = {1544-3566},
+        url = {https://doi.org/10.1145/3571283},
+        doi = {10.1145/3571283},
+        month = mar,
+        articleno = {22},
+        numpages = {26},
+        keywords = {Idiom recognition, automata, MLIR, rewriting, hardware accelerators}
     }
     ```

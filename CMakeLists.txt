@@ -83,3 +83,4 @@ include(CppCheck)
 # Add SMR source files.
 add_subdirectory(smr)
 
+add_compile_options(-gdwarf-4)
