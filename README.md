@@ -4,10 +4,10 @@
 
 In this page you can find the following usefull information:
 
-- [(a) Installation procedure for SMR](#Prerequisites--Installation)
-- [(b) Usage example in C](#Usage)
-- [(c) Usage example in F90](#Usage-with-Fortran)
-- [(d) Related Tools and References](#Related-Tools--References)
+- [Installation procedure for SMR](#Prerequisites--Installation)
+- [Usage example in C](#Usage)
+- [Usage example in F90](#Usage-with-Fortran)
+- [Related Tools and References](#Related-Tools--References)
 
 # Prerequisites & Installation
 
