@@ -4,9 +4,10 @@
 
 # Prerequisites & Installation
 
+
 ***The commands below work for Ubuntu 22.04 LTS.***
 
-> **Note:** A pre-configured **`Dockerfile`** is available in the root directory of this repository. You can use it to build and run the entire environment with all dependencies and LLVM 20 pre-installed.
+> **Note:** A pre-configured **`Dockerfile`** is available in the root directory of this repository. You can use it to build and run the entire environment with all dependencies and LLVM 20 pre-installed. If you want to have your own installation and not use the docker follow the instructions below.
 
 ### Install SMR dependencies:
 
