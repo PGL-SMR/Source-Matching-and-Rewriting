@@ -1,6 +1,13 @@
 # SMR
 
-**Source-based Matching and Rewriting (SMR)** is an CLI tool designed for automated source-to-source pattern matching and code transformation in **C** and **Fortran 90**. Built on top of the MLIR framework, SMR enables detection of code idioms and replaces them with high-performance implementations directly at the source level.
+**Source-based Matching and Rewriting (SMR)** is an CLI tool designed for automated source-to-source pattern matching and code transformation in **C** and **Fortran 90**. Built on top of the MLIR framework, SMR enables detection of code idioms and replaces them with high-performance implementations directly at the source level. SMR also enables another tool called [Pattern Genaration Language (PGL)](https://github.com/PGL-SMR/Pattern-Generation-Language) that allows the programmer to write high level patterns which are then compiled into a set of SMR patterns, thus simplifying the task of designing patterns.
+
+In this page you can find the following usefull information:
+
+(a) Installation procedure for SMR
+(b) Usage example in C
+(c) Usage example in F90
+(d) Related Tools and References
 
 # Prerequisites & Installation
 
