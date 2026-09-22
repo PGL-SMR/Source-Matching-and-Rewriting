@@ -1,9 +1,13 @@
-add_library(pat STATIC Parser.cpp)
+add_library(pat STATIC 
+		Parser.cpp
+		ConditionEvaluator.cpp
+)
 
 target_link_libraries(pat
 	PUBLIC
 		${LLVM_LIBS}
 		${MLIR_LIBS}
+		Rewriter
 )
 
 target_include_directories(pat

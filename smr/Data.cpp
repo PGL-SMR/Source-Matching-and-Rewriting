@@ -1,4 +1,5 @@
 #include "Data.hpp"
+#include "ConditionEvaluator.hpp"
 #include "Frontend/Manager.hpp"
 #include "Logger/Logger.hpp"
 #include "Logger/Messages.hpp"
@@ -37,14 +38,15 @@ unsigned Data::addRewrite(OwningModuleRef &&Pattern,
 
 unsigned Data::addRewrite(OwningModuleRef &&Pattern,
                           std::string &&ReplacementCode,
-                          std::string &&Lang) {
+                          std::string &&Lang,
+                          std::string &&Condition) {
   this->Patterns.push_back(std::move(Pattern));
-  this->Replacements.push_back(nullptr); // Uncompiled initially
+  this->Replacements.push_back(nullptr);
   this->ReplacementSources.push_back(std::move(ReplacementCode));
   this->ReplacementLangs.push_back(std::move(Lang));
+  this->Conditions.push_back(std::move(Condition));
   return Patterns.size() - 1;
 }
-
 unsigned Data::addPattern(OwningModuleRef &&Module) {
   Patterns.push_back(std::move(Module));
   return Patterns.size() - 1;
@@ -158,20 +160,40 @@ std::vector<Rewrite> &Data::getRewrites() {
   Rewrites.reserve(DdgMatches.size());
 
   for (auto &Match : this->DdgMatches) {
+    auto PatternId = Match.getPatternId();
     auto *Target = Match.getInput();
     auto TargetId = Match.getInputId();
     auto Input = getInput(Match.getInputId());
-    auto Pattern = getPattern(Match.getPatternId());
-    // Triggers compilation of replacement only for matched pattern
-    auto Replacement = getReplacement(Match.getPatternId());
+    auto Pattern = getPattern(PatternId);
+
+    // Map pattern arguments to target input values.
     mlir::IRMapping Mapping;
     for (auto &Pair : Match.getMapping()) {
       auto PatternArg =
-          getPatternEntryBlock(Match.getPatternId())->getArgument(Pair.first);
+          getPatternEntryBlock(PatternId)->getArgument(Pair.first);
       Mapping.map((mlir::Value)PatternArg, Pair.second);
     }
-    Rewrites.emplace_back(Id++, Target, TargetId, Input, Pattern, Replacement,
-                          std::move(Mapping));
+
+    // Triggers lazy compilation of replacement module.
+    auto Replacement = getReplacement(PatternId);
+
+    // Build candidate rewrite instance for condition verification.
+    Rewrite Candidate(Id, Target, TargetId, Input, Pattern, Replacement,
+                      std::move(Mapping));
+
+    // Evaluate static condition attached to the pattern if defined.
+    std::string Cond = getCondition(PatternId);
+    if (!Cond.empty()) {
+      if (!pat::ConditionEvaluator::evaluate(Cond, Candidate)) {
+        // Skip rewrite if condition evaluation returns false.
+        info(Msg::CONDITION_EVAL_FAIL, PatternId);
+        continue;
+      }
+    }
+
+    // Condition passed or absent: increment ID and record rewrite.
+    Id++;
+    Rewrites.push_back(std::move(Candidate));
   }
 
   return Rewrites;

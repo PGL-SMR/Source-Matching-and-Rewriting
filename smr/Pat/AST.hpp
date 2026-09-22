@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "llvm/ADT/ArrayRef.h"
@@ -37,17 +38,30 @@ public:
   [[nodiscard]] llvm::StringRef get() const { return Lang; }
 };
 
+/// Expression class for referencing a rewrite condition expression.
+class ConditionAST {
+  std::string Condition;
+
+public:
+  explicit ConditionAST(llvm::StringRef Condition) : Condition(Condition) {}
+  [[nodiscard]] llvm::StringRef get() const { return Condition; }
+  [[nodiscard]] std::string str() const { return get().str(); }
+};
+
 /// This class represents a RootAST Rewrite specification.
 class RewriteAST {
-  std::unique_ptr<LangAST> Lang;         // Rewrite source code language
-  std::unique_ptr<BlockAST> Pattern;     // Pattern source code
-  std::unique_ptr<BlockAST> Replacement; // Replacement source code
+  std::unique_ptr<LangAST> Lang;           // Rewrite source code language
+  std::unique_ptr<BlockAST> Pattern;       // Pattern source code
+  std::unique_ptr<ConditionAST> Condition; // Optional condition expression
+  std::unique_ptr<BlockAST> Replacement;   // Replacement source code
 
 public:
   /// Build a RootAST AST rewrite node
   RewriteAST(std::unique_ptr<LangAST> Lang, std::unique_ptr<BlockAST> Pattern,
+             std::unique_ptr<ConditionAST> Condition,
              std::unique_ptr<BlockAST> Replacement)
       : Lang(std::move(Lang)), Pattern(std::move(Pattern)),
+        Condition(std::move(Condition)),
         Replacement(std::move(Replacement)) {}
 
   /// Get rewrite language
@@ -56,17 +70,23 @@ public:
   /// Get rewrite pattern code block
   BlockAST &getPattern() { return *Pattern; }
 
+  /// Check if rewrite has a condition
+  [[nodiscard]] bool hasCondition() const { return Condition != nullptr; }
+
+  /// Get condition AST node
+  ConditionAST *getCondition() { return Condition.get(); }
+
+  /// Get condition string (or empty if no condition)
+  [[nodiscard]] std::string getConditionStr() const {
+    return Condition ? Condition->str() : "";
+  }
+
   /// Get rewrite replacement code block
   BlockAST &getReplacement() { return *Replacement; }
 };
 
-/// \brief PAT AST root in-memory representation.
-///
-/// \par Since the PAT file is essencially a list of rewrite specifications, the
-/// root is a node with N childs where N is the number os rewrites in the
-/// PAT file.
+/// PAT AST root in-memory representation.
 class RootAST {
-  /// List of rewrite that constitute the PAT file
   std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites;
 
 public:
@@ -74,18 +94,14 @@ public:
       std::unique_ptr<std::vector<std::unique_ptr<RewriteAST>>> Rewrites)
       : Rewrites(std::move(Rewrites)) {}
 
-  /// Get list of rewrites in the PAT file
   std::vector<std::unique_ptr<RewriteAST>> &getRewrites() { return *Rewrites; }
 
-  /// Returns number of rewrites in the parsed PAT file
   [[nodiscard]] unsigned size() const { return Rewrites->size(); }
 
-  /// Acess rewrites by their respective index
   std::unique_ptr<RewriteAST> &operator[](int Index) {
     return Rewrites->at(Index);
   }
 
-  /// PAT file rewrite iterators
   auto begin() -> decltype(Rewrites->begin()) { return Rewrites->begin(); }
   auto end() -> decltype(Rewrites->end()) { return Rewrites->end(); }
 };

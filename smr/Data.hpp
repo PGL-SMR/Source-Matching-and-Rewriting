@@ -84,6 +84,7 @@ private:
   std::vector<cdg::Match> CdgMatches;
   std::vector<ddg::Match> DdgMatches;
   std::vector<Rewrite> Rewrites;
+  std::vector<std::string> Conditions;
 
 public:
   mlir::MLIRContext *getContext() { return &Context; }
@@ -117,11 +118,17 @@ public:
 
   /// Register compiled pattern with uncompiled replacement source.
   unsigned addRewrite(OwningModuleRef &&Pattern, std::string &&ReplacementCode,
-                     std::string &&Lang);
+                     std::string &&Lang, std::string &&Condition = "");
 
   /// Register pre-compiled PAT rewrite returning its ID.
   unsigned addRewrite(OwningModuleRef &&Pattern, OwningModuleRef &&Replacement);
 
+  [[nodiscard]] std::string getCondition(int Idx) const {
+    if (Idx >= 0 && Idx < static_cast<int>(Conditions.size()))
+      return Conditions[Idx];
+    return "";
+  }
+  
   unsigned addPattern(OwningModuleRef &&Module);
 
   void reserveRewrites(unsigned int Size) {

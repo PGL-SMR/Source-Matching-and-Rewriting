@@ -45,6 +45,11 @@ private:
   /// rewrite ::= lang { block } = { block } | tok_eof
   std::unique_ptr<RewriteAST> parseRewrite();
 
+  /// Parse a condition: a if and a string wrapped in parentheses.
+  ///
+  /// rewrite ::= if (any_string)= 
+  std::unique_ptr<ConditionAST> parseCondition();
+
   /// \brief Informs about parsing erros with contextual information.
   ///
   /// \param Expected Expected token for correct parsing.

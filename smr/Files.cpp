@@ -165,6 +165,7 @@ int loadPatFile(std::string &Filepath, Data &Data) {
     std::string Pattern = Rewrite->getPattern().str();
     std::string Replacement = Rewrite->getReplacement().str();
     std::string Lang = Rewrite->getLang();
+    std::string Condition = Rewrite->getConditionStr();
     RewriteId++;
 
     // Compile ONLY the pattern upfront if it is source code.
@@ -201,7 +202,8 @@ int loadPatFile(std::string &Filepath, Data &Data) {
     }
 
     // Add pattern module and raw uncompiled replacement source code to Data.
-    Data.addRewrite(std::move(ParsedPattern), std::move(Replacement), std::move(Lang));
+    Data.addRewrite(std::move(ParsedPattern), std::move(Replacement),
+                  std::move(Lang), std::move(Condition));
   }
 
   // If compilation mode is requested (-compile), store the compiled PAT file.

@@ -45,6 +45,7 @@ enum Msg {
   COMPILE_IGNORED,
   MUTUALLY_EXCLUSIVE,
   INCORRECT_CALL_ARGUMENTS,
+  CONDITION_EVAL_FAIL,
 };
 
 struct Message {
@@ -99,4 +100,5 @@ const std::array<Message, 64> Messages = {{
     {COMPILE_IGNORED, "File ignored since --compile flag is set: '{0}'"},
     {MUTUALLY_EXCLUSIVE, "Flags '{0}' and '{1}' are mutually exclusive."},
     {INCORRECT_CALL_ARGUMENTS, "Removed rewrite {0} due to problems with arguments."},
+    {CONDITION_EVAL_FAIL, "Condition evaluation failed for pattern {0}."}
 }};
