@@ -16,13 +16,26 @@
 namespace {
 // deep copy operation properties
 void copyProperties(mlir::Operation &Src, mlir::Operation *Dst) {
-  Dst->copyProperties(Src.getPropertiesStorage());
+  if (!Dst) return;
+
+  if (auto SrcProperties = Src.getPropertiesStorage()) {
+    Dst->copyProperties(SrcProperties);
+  }
 
   for (auto &Region : Src.getRegions()) {
-    for (auto SrcChild = Region.op_begin(),
-              DstChild = Dst->getRegion(Region.getRegionNumber()).op_begin();
-         SrcChild != Region.op_end(); SrcChild++, DstChild++) {
+    unsigned regionIdx = Region.getRegionNumber();
+    
+    if (regionIdx >= Dst->getNumRegions()) break;
+
+    auto &DstRegion = Dst->getRegion(regionIdx);
+
+    auto SrcChild = Region.op_begin();
+    auto DstChild = DstRegion.op_begin();
+
+    while (SrcChild != Region.op_end() && DstChild != DstRegion.op_end()) {
       copyProperties(*SrcChild, &*DstChild);
+      ++SrcChild;
+      ++DstChild;
     }
   }
 }

@@ -77,26 +77,16 @@ std::unique_ptr<BlockAST> Parser::parseBlock() {
   return std::make_unique<BlockAST>(std::move(Block));
 }
 
-/// Parse a condition block: if ( condition_expression ).
-///
-/// Condition ::= if ( any_string ).
+/// Parses condition inside ( condition_expression ).
 std::unique_ptr<ConditionAST> Parser::parseCondition() {
-  if (Lexer.getCurToken() != 'i')
-    return parseError<ConditionAST>("if", "condition prefix");
-
-  Token Tok = Lexer.getNextToken();
-  if (Tok != 'f')
-    return parseError<ConditionAST>("if", "condition keyword 'if'");
-
-  Tok = Lexer.getNextToken();
-  if (Tok != '(')
-    return parseError<ConditionAST>("(", "after 'if'");
+  if (Lexer.getCurToken() != '(')
+    return parseError<ConditionAST>("(", "after directive condition");
 
   std::string CondStr;
   std::string Prev;
+  Token Tok = Lexer.getCurToken();
   int Level = 1;
 
-  // Read characters inside ( ... ) handling nested parentheses and spaces
   while (Level != 0 && Tok != tok_eof) {
     CondStr += Prev;
     Tok = Lexer.getNextToken(true);
@@ -110,40 +100,77 @@ std::unique_ptr<ConditionAST> Parser::parseCondition() {
   }
 
   if (Tok != ')')
-    return parseError<ConditionAST>(")", "to close 'if' condition");
+    return parseError<ConditionAST>(")", "to close condition expression");
 
   Lexer.consume(Tok);
   return std::make_unique<ConditionAST>(std::move(CondStr));
 }
 
-/// Parse a rewrite: pattern block, optional condition, and replace block.
-///
-/// Rewrite ::= lang { block } [ if ( condition ) ] = { block } | tok_eof.
+/// Parses a rewrite: lang { pattern } [#if (...) = { replacement }] [#elif ...] [#else ...]
 std::unique_ptr<RewriteAST> Parser::parseRewrite() {
-  std::unique_ptr<pat::BlockAST> Pattern;
-  std::unique_ptr<pat::ConditionAST> Condition;
-  std::unique_ptr<pat::BlockAST> Replacement;
   auto Lang = parseLang();
+  std::unique_ptr<pat::BlockAST> Pattern;
 
   if (!(Pattern = parseBlock()))
     return nullptr;
 
-  // Optional condition clause starting with 'if'
-  if (Lexer.getCurToken() == 'i') {
-    if (!(Condition = parseCondition()))
-      return nullptr;
+  std::vector<std::unique_ptr<RewriteBranchAST>> Branches;
+
+  // Case 1: Standard unconditional rewrite: = { replacement }
+  if (Lexer.getCurToken() == tok_equal) {
+    Lexer.consume(tok_equal);
+    auto Replacement = parseBlock();
+    if (!Replacement) return nullptr;
+
+    Branches.push_back(std::make_unique<RewriteBranchAST>(
+        "", nullptr, std::move(Replacement)));
+    return std::make_unique<RewriteAST>(std::move(Lang), std::move(Pattern),
+                                        std::move(Branches));
   }
 
-  if (Lexer.getCurToken() != tok_equal)
-    return parseError<RewriteAST>("=", "or 'if' condition to define a replace block");
-  Lexer.consume(tok_equal);
+  // Case 2: Conditional rewrite with #if, #elif, #else
+  while (Lexer.getCurToken() == '#') {
+    std::string Tag = "#";
+    Token Tok = Lexer.getNextToken();
+    while (isalpha((char)Tok) != 0) {
+      Tag += (char)Tok;
+      Tok = Lexer.getNextToken();
+    }
 
-  if (!(Replacement = parseBlock()))
-    return nullptr;
+    if (Tag == "#if" || Tag == "#elif") {
+      auto Cond = parseCondition();
+      if (!Cond) return nullptr;
+
+      if (Lexer.getCurToken() != tok_equal)
+        return parseError<RewriteAST>("=", "after condition expression");
+      Lexer.consume(tok_equal);
+
+      auto Repl = parseBlock();
+      if (!Repl) return nullptr;
+
+      Branches.push_back(std::make_unique<RewriteBranchAST>(
+          Tag, std::move(Cond), std::move(Repl)));
+    } else if (Tag == "#else") {
+      if (Lexer.getCurToken() != tok_equal)
+        return parseError<RewriteAST>("=", "after #else directive");
+      Lexer.consume(tok_equal);
+
+      auto Repl = parseBlock();
+      if (!Repl) return nullptr;
+
+      Branches.push_back(std::make_unique<RewriteBranchAST>(
+          Tag, nullptr, std::move(Repl)));
+    } else {
+      return parseError<RewriteAST>("#if, #elif, or #else", "for conditional branch");
+    }
+  }
+
+  if (Branches.empty()) {
+    return parseError<RewriteAST>("'=' or '#if'", "to define rewrite replacement");
+  }
 
   return std::make_unique<RewriteAST>(std::move(Lang), std::move(Pattern),
-                                      std::move(Condition),
-                                      std::move(Replacement));
+                                      std::move(Branches));
 }
 
 template <typename R, typename T, typename U>

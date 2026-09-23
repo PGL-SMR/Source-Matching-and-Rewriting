@@ -9,15 +9,12 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Casting.h"
 
 namespace pat {
-
-using rewrite = std::pair<std::string, std::string>;
 
 /// Expression class for referencing a code block.
 class BlockAST {
@@ -48,41 +45,48 @@ public:
   [[nodiscard]] std::string str() const { return get().str(); }
 };
 
-/// This class represents a RootAST Rewrite specification.
-class RewriteAST {
-  std::unique_ptr<LangAST> Lang;           // Rewrite source code language
-  std::unique_ptr<BlockAST> Pattern;       // Pattern source code
-  std::unique_ptr<ConditionAST> Condition; // Optional condition expression
-  std::unique_ptr<BlockAST> Replacement;   // Replacement source code
+/// Represents a single branch (#if, #elif, #else, or default '=').
+class RewriteBranchAST {
+  std::string Kind;                        // "#if", "#elif", "#else", or ""
+  std::unique_ptr<ConditionAST> Condition; // nullptr for #else or default =
+  std::unique_ptr<BlockAST> Replacement;
 
 public:
-  /// Build a RootAST AST rewrite node
-  RewriteAST(std::unique_ptr<LangAST> Lang, std::unique_ptr<BlockAST> Pattern,
-             std::unique_ptr<ConditionAST> Condition,
-             std::unique_ptr<BlockAST> Replacement)
-      : Lang(std::move(Lang)), Pattern(std::move(Pattern)),
-        Condition(std::move(Condition)),
+  RewriteBranchAST(std::string Kind, std::unique_ptr<ConditionAST> Condition,
+                   std::unique_ptr<BlockAST> Replacement)
+      : Kind(std::move(Kind)), Condition(std::move(Condition)),
         Replacement(std::move(Replacement)) {}
 
-  /// Get rewrite language
-  [[nodiscard]] std::string getLang() const { return Lang->get().str(); }
-
-  /// Get rewrite pattern code block
-  BlockAST &getPattern() { return *Pattern; }
-
-  /// Check if rewrite has a condition
+  [[nodiscard]] const std::string &getKind() const { return Kind; }
+  [[nodiscard]] bool isElse() const { return Kind == "#else"; }
   [[nodiscard]] bool hasCondition() const { return Condition != nullptr; }
-
-  /// Get condition AST node
   ConditionAST *getCondition() { return Condition.get(); }
-
-  /// Get condition string (or empty if no condition)
   [[nodiscard]] std::string getConditionStr() const {
     return Condition ? Condition->str() : "";
   }
-
-  /// Get rewrite replacement code block
   BlockAST &getReplacement() { return *Replacement; }
+  [[nodiscard]] std::string getReplacementStr() const {
+    return Replacement ? Replacement->str() : "";
+  }
+};
+
+/// This class represents a Pattern rewrite specification with conditional branches.
+class RewriteAST {
+  std::unique_ptr<LangAST> Lang;
+  std::unique_ptr<BlockAST> Pattern;
+  std::vector<std::unique_ptr<RewriteBranchAST>> Branches;
+
+public:
+  RewriteAST(std::unique_ptr<LangAST> Lang, std::unique_ptr<BlockAST> Pattern,
+             std::vector<std::unique_ptr<RewriteBranchAST>> Branches)
+      : Lang(std::move(Lang)), Pattern(std::move(Pattern)),
+        Branches(std::move(Branches)) {}
+
+  [[nodiscard]] std::string getLang() const { return Lang->get().str(); }
+  BlockAST &getPattern() { return *Pattern; }
+  std::vector<std::unique_ptr<RewriteBranchAST>> &getBranches() {
+    return Branches;
+  }
 };
 
 /// PAT AST root in-memory representation.

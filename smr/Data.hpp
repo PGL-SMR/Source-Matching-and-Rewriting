@@ -19,6 +19,21 @@
 #include <string>
 #include <vector>
 
+struct PatternBranch {
+  std::string Kind;               // "#if", "#elif", "#else", or ""
+  std::string Condition;          // Expressão condicional
+  std::string ReplacementSource;  // Código fonte de substituição
+  bool IsElse = false;
+
+  template <class Archive>
+  void serialize(Archive &Ar, const unsigned int /*version*/) {
+    Ar & Kind;
+    Ar & Condition;
+    Ar & ReplacementSource;
+    Ar & IsElse;
+  }
+};
+
 class Data {
 private:
   friend boost::serialization::access;
@@ -28,12 +43,11 @@ private:
     std::vector<std::string> PatternCodes;
     PatternCodes.reserve(Patterns.size());
 
-    // Convert pattern modules to strings for serialization.
-    std::transform(Patterns.begin(), Patterns.end(),
-                   std::back_inserter(PatternCodes), getModuleCodeAsString);
+    for (const auto &Pat : Patterns)
+      PatternCodes.push_back(getModuleCodeAsString(Pat));
 
     Ar & PatternCodes;
-    Ar & ReplacementSources;
+    Ar & PatternBranches;
     Ar & ReplacementLangs;
   }
 
@@ -42,18 +56,16 @@ private:
     std::vector<std::string> PatternCodes;
 
     Ar & PatternCodes;
-    Ar & ReplacementSources;
+    Ar & PatternBranches;
     Ar & ReplacementLangs;
 
-    // Convert pattern strings back to MLIR modules.
     auto Func = [this](const std::string &Code) {
       return mlir::parseSourceString<mlir::ModuleOp>(Code, &Context);
     };
     std::transform(PatternCodes.begin(), PatternCodes.end(),
                    std::back_inserter(Patterns), Func);
 
-    // Resize Replacements vector to match the number of patterns (populated lazily).
-    Replacements.resize(ReplacementSources.size());
+    CompiledReplacements.resize(PatternBranches.size());
   }
 
   BOOST_SERIALIZATION_SPLIT_MEMBER()
@@ -73,18 +85,19 @@ private:
   std::vector<std::string> InputsFilepaths;
 
   std::vector<OwningModuleRef> Patterns;
-  std::vector<OwningModuleRef> Replacements;
+  
+  /// Ramos de cada padrão [PatternIdx][BranchIdx]
+  std::vector<std::vector<PatternBranch>> PatternBranches;
 
-  /// Uncompiled replacement source code strings.
-  std::vector<std::string> ReplacementSources;
+  /// Cache dos módulos compilados de cada ramo [PatternIdx][BranchIdx]
+  std::vector<std::vector<OwningModuleRef>> CompiledReplacements;
 
-  /// Language for each replacement source code.
+  /// Linguagem associada a cada padrão
   std::vector<std::string> ReplacementLangs;
 
   std::vector<cdg::Match> CdgMatches;
   std::vector<ddg::Match> DdgMatches;
   std::vector<Rewrite> Rewrites;
-  std::vector<std::string> Conditions;
 
 public:
   mlir::MLIRContext *getContext() { return &Context; }
@@ -99,11 +112,14 @@ public:
 
   mlir::ModuleOp getPattern(int Idx) { return Patterns[Idx].get(); }
 
-  /// Compiles replacement lazily if not compiled yet, and returns it.
-  mlir::ModuleOp getReplacement(int Idx);
+  /// Compila o módulo de substituição de um determinado ramo sob demanda.
+  mlir::ModuleOp getReplacement(int PatternIdx, int BranchIdx);
+
+  const std::vector<PatternBranch> &getBranches(int PatternIdx) const {
+    return PatternBranches[PatternIdx];
+  }
 
   std::vector<mlir::ModuleOp> getInputs();
-
   std::map<int, mlir::Operation *> getPatternRoots();
 
   void setCdgMatches(std::vector<cdg::Match> &&CdgMatches) {
@@ -116,26 +132,18 @@ public:
 
   unsigned addInput(OwningModuleRef &&Module, std::string &&Filepath);
 
-  /// Register compiled pattern with uncompiled replacement source.
-  unsigned addRewrite(OwningModuleRef &&Pattern, std::string &&ReplacementCode,
-                     std::string &&Lang, std::string &&Condition = "");
+  /// Registra padrão com seus ramos condicionais.
+  unsigned addRewrite(OwningModuleRef &&Pattern,
+                      std::vector<PatternBranch> &&Branches,
+                      std::string &&Lang);
 
-  /// Register pre-compiled PAT rewrite returning its ID.
-  unsigned addRewrite(OwningModuleRef &&Pattern, OwningModuleRef &&Replacement);
-
-  [[nodiscard]] std::string getCondition(int Idx) const {
-    if (Idx >= 0 && Idx < static_cast<int>(Conditions.size()))
-      return Conditions[Idx];
-    return "";
-  }
-  
   unsigned addPattern(OwningModuleRef &&Module);
 
   void reserveRewrites(unsigned int Size) {
     this->Patterns.reserve(Size);
-    this->Replacements.reserve(Size);
-    this->ReplacementSources.reserve(Size);
+    this->PatternBranches.reserve(Size);
     this->ReplacementLangs.reserve(Size);
+    this->CompiledReplacements.reserve(Size);
   }
 
   mlir::Operation *getPatternRoot(int Idx);

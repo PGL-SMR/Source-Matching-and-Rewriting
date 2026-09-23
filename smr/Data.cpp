@@ -12,14 +12,6 @@
 #include <iterator>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
-#include <map>
-#include <mlir/IR/Block.h>
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/Value.h>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
 
 unsigned Data::addInput(OwningModuleRef &&Module, std::string &&Filepath) {
   Inputs.push_back(std::move(Module));
@@ -28,84 +20,73 @@ unsigned Data::addInput(OwningModuleRef &&Module, std::string &&Filepath) {
 }
 
 unsigned Data::addRewrite(OwningModuleRef &&Pattern,
-                          OwningModuleRef &&Replacement) {
+                          std::vector<PatternBranch> &&Branches,
+                          std::string &&Lang) {
   this->Patterns.push_back(std::move(Pattern));
-  this->Replacements.push_back(std::move(Replacement));
-  this->ReplacementSources.push_back("");
-  this->ReplacementLangs.push_back("mlir");
+  this->PatternBranches.push_back(std::move(Branches));
+  this->ReplacementLangs.push_back(std::move(Lang));
+  this->CompiledReplacements.resize(Patterns.size());
   return Patterns.size() - 1;
 }
 
-unsigned Data::addRewrite(OwningModuleRef &&Pattern,
-                          std::string &&ReplacementCode,
-                          std::string &&Lang,
-                          std::string &&Condition) {
-  this->Patterns.push_back(std::move(Pattern));
-  this->Replacements.push_back(nullptr);
-  this->ReplacementSources.push_back(std::move(ReplacementCode));
-  this->ReplacementLangs.push_back(std::move(Lang));
-  this->Conditions.push_back(std::move(Condition));
-  return Patterns.size() - 1;
-}
 unsigned Data::addPattern(OwningModuleRef &&Module) {
   Patterns.push_back(std::move(Module));
   return Patterns.size() - 1;
 }
 
-mlir::ModuleOp Data::getReplacement(int Idx) {
-  if (Idx < 0 || Idx >= static_cast<int>(Patterns.size()))
+mlir::ModuleOp Data::getReplacement(int PatternIdx, int BranchIdx) {
+  if (PatternIdx < 0 || PatternIdx >= static_cast<int>(Patterns.size()))
+    return nullptr;
+  if (BranchIdx < 0 || BranchIdx >= static_cast<int>(PatternBranches[PatternIdx].size()))
     return nullptr;
 
-  // If already compiled, return the compiled module.
-  if (Idx < static_cast<int>(Replacements.size()) && Replacements[Idx])
-    return Replacements[Idx].get();
+  if (PatternIdx >= static_cast<int>(CompiledReplacements.size()))
+    CompiledReplacements.resize(Patterns.size());
 
-  // Ensure replacement source exists.
-  if (Idx >= static_cast<int>(ReplacementSources.size()))
-    return nullptr;
+  if (BranchIdx < static_cast<int>(CompiledReplacements[PatternIdx].size()) &&
+      CompiledReplacements[PatternIdx][BranchIdx]) {
+    return CompiledReplacements[PatternIdx][BranchIdx].get();
+  }
 
   frontend::Manager Front;
-  std::string Code = ReplacementSources[Idx];
-  std::string Lang = ReplacementLangs[Idx];
+  const auto &Branch = PatternBranches[PatternIdx][BranchIdx];
+  std::string Code = Branch.ReplacementSource;
+  std::string Lang = ReplacementLangs[PatternIdx];
 
-  // Compile source code to MLIR string if necessary.
   if (Lang != "mlir") {
     if (Front.compile(Lang, Code) != 0) {
-      error(Msg::FAIL_COMPILE_SOURCE_FILE, "Replacement " + std::to_string(Idx));
+      error(Msg::FAIL_COMPILE_SOURCE_FILE, "Replacement " + std::to_string(PatternIdx));
       return nullptr;
     }
   }
 
   Front.getFrontend(Lang)->getOrLoadDialect(&Context);
 
-  // Parse MLIR string to ModuleOp.
   auto ParsedReplacement =
       mlir::parseSourceString<mlir::ModuleOp>(Code, &Context);
 
   if (!ParsedReplacement) {
-    error(Msg::FAIL_PARSE_REWRITE, std::to_string(Idx));
+    error(Msg::FAIL_PARSE_REWRITE, std::to_string(PatternIdx));
     return nullptr;
   }
 
-  // Preprocess replacement if compiled from source code.
   if (Lang != "mlir") {
     if (Front.preprocessReplacement(Lang, ParsedReplacement.get()) != 0) {
-      error(Msg::FAIL_PREPROC_REWRITE, std::to_string(Idx));
+      error(Msg::FAIL_PREPROC_REWRITE, std::to_string(PatternIdx));
       return nullptr;
     }
   }
 
-  // Validate replacement module.
   if (frontend::Manager::validateReplacement(ParsedReplacement.get()) != 0) {
-    error(Msg::INVALID_REWRITE, std::to_string(Idx));
+    error(Msg::INVALID_REWRITE, std::to_string(PatternIdx));
     return nullptr;
   }
 
-  if (Idx >= static_cast<int>(Replacements.size()))
-    Replacements.resize(Idx + 1);
+  if (BranchIdx >= static_cast<int>(CompiledReplacements[PatternIdx].size()))
+    CompiledReplacements[PatternIdx].resize(BranchIdx + 1);
 
-  Replacements[Idx] = std::move(ParsedReplacement);
-  return Replacements[Idx].get();
+  CompiledReplacements[PatternIdx][BranchIdx] = std::move(ParsedReplacement);
+  return CompiledReplacements[PatternIdx][BranchIdx].get();
 }
 
 mlir::Operation *Data::getPatternRoot(int Idx) {
@@ -118,7 +99,7 @@ mlir::Operation *Data::getPatternRoot(int Idx) {
     }
   }
   return nullptr;
-};
+}
 
 mlir::Block *Data::getPatternEntryBlock(int Idx) {
   for (auto &Op : Patterns[Idx]->getOps()) {
@@ -157,6 +138,7 @@ std::vector<Rewrite> &Data::getRewrites() {
   if (!Rewrites.empty())
     return Rewrites;
 
+  Rewrites.clear();
   Rewrites.reserve(DdgMatches.size());
 
   for (auto &Match : this->DdgMatches) {
@@ -166,7 +148,6 @@ std::vector<Rewrite> &Data::getRewrites() {
     auto Input = getInput(Match.getInputId());
     auto Pattern = getPattern(PatternId);
 
-    // Map pattern arguments to target input values.
     mlir::IRMapping Mapping;
     for (auto &Pair : Match.getMapping()) {
       auto PatternArg =
@@ -174,26 +155,30 @@ std::vector<Rewrite> &Data::getRewrites() {
       Mapping.map((mlir::Value)PatternArg, Pair.second);
     }
 
-    // Triggers lazy compilation of replacement module.
-    auto Replacement = getReplacement(PatternId);
+    const auto &Branches = getBranches(PatternId);
 
-    // Build candidate rewrite instance for condition verification.
-    Rewrite Candidate(Id, Target, TargetId, Input, Pattern, Replacement,
-                      std::move(Mapping));
 
-    // Evaluate static condition attached to the pattern if defined.
-    std::string Cond = getCondition(PatternId);
-    if (!Cond.empty()) {
-      if (!pat::ConditionEvaluator::evaluate(Cond, Candidate)) {
-        // Skip rewrite if condition evaluation returns false.
-        info(Msg::CONDITION_EVAL_FAIL, PatternId);
-        continue;
+    for (size_t BranchIdx = 0; BranchIdx < Branches.size(); ++BranchIdx) {
+      const auto &Branch = Branches[BranchIdx];
+
+      Rewrite Candidate(Id, Target, TargetId, Input, Pattern, nullptr, mlir::IRMapping(Mapping));
+
+      bool CondPass = false;
+      if (Branch.IsElse || Branch.Condition.empty()) {
+        CondPass = true;
+      } else {
+        CondPass = pat::ConditionEvaluator::evaluate(Branch.Condition, Candidate);
+      }
+
+      if (CondPass) {
+        auto Replacement = getReplacement(PatternId, static_cast<int>(BranchIdx));
+        Rewrite FinalRewrite(Id, Target, TargetId, Input, Pattern, Replacement,
+                             std::move(Mapping));
+        Rewrites.push_back(std::move(FinalRewrite));
+        Id++;
+        break;
       }
     }
-
-    // Condition passed or absent: increment ID and record rewrite.
-    Id++;
-    Rewrites.push_back(std::move(Candidate));
   }
 
   return Rewrites;
@@ -311,11 +296,21 @@ void Data::dumpRewritesCode() {
     llvm::outs() << "\nRewrite " << i << ":\n";
     llvm::outs() << "\n ----- Pattern " << i << " -----\n";
     Patterns[i]->dump();
-    llvm::outs() << "\n ----- Replacement " << i << " -----\n";
-    if (i < Replacements.size() && Replacements[i]) {
-      Replacements[i]->dump();
-    } else if (i < ReplacementSources.size()) {
-      llvm::outs() << ReplacementSources[i] << "\n";
+
+    const auto &Branches = PatternBranches[i];
+    for (size_t j = 0; j < Branches.size(); ++j) {
+      const auto &Branch = Branches[j];
+      llvm::outs() << "\n ----- Branch " << j << " ("
+                   << (Branch.Kind.empty() ? "default" : Branch.Kind);
+      if (!Branch.Condition.empty())
+        llvm::outs() << " " << Branch.Condition;
+      llvm::outs() << ") -----\n";
+
+      if (j < CompiledReplacements[i].size() && CompiledReplacements[i][j]) {
+        CompiledReplacements[i][j]->dump();
+      } else {
+        llvm::outs() << Branch.ReplacementSource << "\n";
+      }
     }
     llvm::outs() << "\n -----------------------\n";
   }

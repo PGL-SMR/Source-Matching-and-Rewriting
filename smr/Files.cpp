@@ -53,13 +53,32 @@ static int storeCompiledPatFile(std::string &Filepath, Data &Data) {
   std::error_code FileError;
   llvm::raw_fd_ostream File(FilepathRef, FileError);
 
-  // Dump each rewrite to File.
   for (int i = 0; i < Data.getNumPatterns(); ++i) {
-    File << "mlir {";
+    File << "mlir {\n";
     Data.getPattern(i)->print(File);
-    File << "\n\n} = {";
-    Data.getReplacement(i)->print(File);
-    File << "\n\n}\n\n";
+    File << "\n}\n";
+
+    const auto &Branches = Data.getBranches(i);
+    for (size_t j = 0; j < Branches.size(); ++j) {
+      const auto &Branch = Branches[j];
+      if (!Branch.Kind.empty()) {
+        File << Branch.Kind;
+        if (!Branch.Condition.empty()) {
+          File << " (" << Branch.Condition << ")";
+        }
+        File << " = {\n";
+      } else {
+        File << "= {\n";
+      }
+      auto ReplacementModule = Data.getReplacement(i, static_cast<int>(j));
+      if (ReplacementModule) {
+        ReplacementModule->print(File);
+      } else {
+        File << Branch.ReplacementSource;
+      }
+      File << "\n}\n";
+    }
+    File << "\n";
   }
 
   return 0;
@@ -163,12 +182,9 @@ int loadPatFile(std::string &Filepath, Data &Data) {
 
   for (auto &Rewrite : *Root) {
     std::string Pattern = Rewrite->getPattern().str();
-    std::string Replacement = Rewrite->getReplacement().str();
     std::string Lang = Rewrite->getLang();
-    std::string Condition = Rewrite->getConditionStr();
     RewriteId++;
 
-    // Compile ONLY the pattern upfront if it is source code.
     if (Lang != "mlir") {
       if (Front.compile(Lang, Pattern) != 0) {
         error(Msg::FAIL_COMPILE_SOURCE_FILE, Filepath);
@@ -178,7 +194,6 @@ int loadPatFile(std::string &Filepath, Data &Data) {
 
     Front.getFrontend(Lang)->getOrLoadDialect(Data.getContext());
 
-    // Parse pattern MLIR.
     auto ParsedPattern =
         mlir::parseSourceString<mlir::ModuleOp>(Pattern, Data.getContext());
 
@@ -187,7 +202,6 @@ int loadPatFile(std::string &Filepath, Data &Data) {
       return Msg::FAIL_PARSE_REWRITE;
     }
 
-    // Preprocess pattern MLIR.
     if (Lang != "mlir") {
       if (Front.preprocessPattern(Lang, ParsedPattern.get()) != 0) {
         error(Msg::FAIL_PREPROC_REWRITE, std::to_string(RewriteId));
@@ -195,18 +209,24 @@ int loadPatFile(std::string &Filepath, Data &Data) {
       }
     }
 
-    // Validate pattern.
     if (frontend::Manager::validatePattern(ParsedPattern.get()) != 0) {
       error(Msg::INVALID_REWRITE, std::to_string(RewriteId));
       return Msg::INVALID_REWRITE;
     }
 
-    // Add pattern module and raw uncompiled replacement source code to Data.
-    Data.addRewrite(std::move(ParsedPattern), std::move(Replacement),
-                  std::move(Lang), std::move(Condition));
+    std::vector<PatternBranch> Branches;
+    for (auto &BranchAST : Rewrite->getBranches()) {
+      PatternBranch Branch;
+      Branch.Kind = BranchAST->getKind();
+      Branch.Condition = BranchAST->getConditionStr();
+      Branch.ReplacementSource = BranchAST->getReplacementStr();
+      Branch.IsElse = BranchAST->isElse();
+      Branches.push_back(std::move(Branch));
+    }
+
+    Data.addRewrite(std::move(ParsedPattern), std::move(Branches), std::move(Lang));
   }
 
-  // If compilation mode is requested (-compile), store the compiled PAT file.
   if (cl::Compile) {
     auto DotIdx = Filepath.find_last_of('.');
     auto CompiledFilepath = Filepath.substr(0, DotIdx) + "-compiled.pat";
