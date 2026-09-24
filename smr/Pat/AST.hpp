@@ -45,10 +45,10 @@ public:
   [[nodiscard]] std::string str() const { return get().str(); }
 };
 
-/// Represents a single branch (#if, #elif, #else, or default '=').
+/// Represents a single branch ($if, $elif, $else, or default '=').
 class RewriteBranchAST {
-  std::string Kind;                        // "#if", "#elif", "#else", or ""
-  std::unique_ptr<ConditionAST> Condition; // nullptr for #else or default =
+  std::string Kind;                        // "$if", "$elif", "$else", or ""
+  std::unique_ptr<ConditionAST> Condition; // nullptr for $else or default =
   std::unique_ptr<BlockAST> Replacement;
 
 public:
@@ -58,7 +58,7 @@ public:
         Replacement(std::move(Replacement)) {}
 
   [[nodiscard]] const std::string &getKind() const { return Kind; }
-  [[nodiscard]] bool isElse() const { return Kind == "#else"; }
+  [[nodiscard]] bool isElse() const { return Kind == "$else"; }
   [[nodiscard]] bool hasCondition() const { return Condition != nullptr; }
   ConditionAST *getCondition() { return Condition.get(); }
   [[nodiscard]] std::string getConditionStr() const {

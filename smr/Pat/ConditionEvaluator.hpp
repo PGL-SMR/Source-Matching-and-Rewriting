@@ -25,7 +25,7 @@ private:
   /// Main evaluation method for a condition string.
   bool eval(llvm::StringRef CondExpr);
 
-  /// Helper to evaluate built-in functions like #is_const(var).
+  /// Helper to evaluate built-in functions like $is_const(var).
   bool evalBuiltin(llvm::StringRef Expr);
 
   /// Evaluates comparison expressions (e.g., "N > 1000", "x == 0").

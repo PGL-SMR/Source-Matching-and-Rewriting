@@ -20,7 +20,7 @@
 #include <vector>
 
 struct PatternBranch {
-  std::string Kind;               // "#if", "#elif", "#else", or ""
+  std::string Kind;               // "$if", "$elif", "$else", or ""
   std::string Condition;          // Expressão condicional
   std::string ReplacementSource;  // Código fonte de substituição
   bool IsElse = false;

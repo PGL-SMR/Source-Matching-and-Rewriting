@@ -106,7 +106,7 @@ std::unique_ptr<ConditionAST> Parser::parseCondition() {
   return std::make_unique<ConditionAST>(std::move(CondStr));
 }
 
-/// Parses a rewrite: lang { pattern } [#if (...) = { replacement }] [#elif ...] [#else ...]
+/// Parses a rewrite: lang { pattern } [$if (...) = { replacement }] [$elif ...] [$else ...]
 std::unique_ptr<RewriteAST> Parser::parseRewrite() {
   auto Lang = parseLang();
   std::unique_ptr<pat::BlockAST> Pattern;
@@ -128,16 +128,16 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
                                         std::move(Branches));
   }
 
-  // Case 2: Conditional rewrite with #if, #elif, #else
-  while (Lexer.getCurToken() == '#') {
-    std::string Tag = "#";
+  // Case 2: Conditional rewrite with $if, $elif, $else
+  while (Lexer.getCurToken() == '$') {
+    std::string Tag = "$";
     Token Tok = Lexer.getNextToken();
     while (isalpha((char)Tok) != 0) {
       Tag += (char)Tok;
       Tok = Lexer.getNextToken();
     }
 
-    if (Tag == "#if" || Tag == "#elif") {
+    if (Tag == "$if" || Tag == "$elif") {
       auto Cond = parseCondition();
       if (!Cond) return nullptr;
 
@@ -150,9 +150,9 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
 
       Branches.push_back(std::make_unique<RewriteBranchAST>(
           Tag, std::move(Cond), std::move(Repl)));
-    } else if (Tag == "#else") {
+    } else if (Tag == "$else") {
       if (Lexer.getCurToken() != tok_equal)
-        return parseError<RewriteAST>("=", "after #else directive");
+        return parseError<RewriteAST>("=", "after $else directive");
       Lexer.consume(tok_equal);
 
       auto Repl = parseBlock();
@@ -161,12 +161,12 @@ std::unique_ptr<RewriteAST> Parser::parseRewrite() {
       Branches.push_back(std::make_unique<RewriteBranchAST>(
           Tag, nullptr, std::move(Repl)));
     } else {
-      return parseError<RewriteAST>("#if, #elif, or #else", "for conditional branch");
+      return parseError<RewriteAST>("$if, $elif, or $else", "for conditional branch");
     }
   }
 
   if (Branches.empty()) {
-    return parseError<RewriteAST>("'=' or '#if'", "to define rewrite replacement");
+    return parseError<RewriteAST>("'=' or '$if'", "to define rewrite replacement");
   }
 
   return std::make_unique<RewriteAST>(std::move(Lang), std::move(Pattern),
