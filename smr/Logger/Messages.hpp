@@ -45,6 +45,9 @@ enum Msg {
   COMPILE_IGNORED,
   MUTUALLY_EXCLUSIVE,
   INCORRECT_CALL_ARGUMENTS,
+  OVERLAPPING_MATCHES,
+  OVERLAPPING_ABORT,
+  NESTED_MATCHES,
 };
 
 struct Message {
@@ -98,5 +101,11 @@ const std::array<Message, 64> Messages = {{
     {STORED_COMPILED_SRC, "Input file compiled and stored at '{0}'"},
     {COMPILE_IGNORED, "File ignored since --compile flag is set: '{0}'"},
     {MUTUALLY_EXCLUSIVE, "Flags '{0}' and '{1}' are mutually exclusive."},
-    {INCORRECT_CALL_ARGUMENTS, "Removed rewrite {0} due to problems with arguments."},
+    {INCORRECT_CALL_ARGUMENTS,
+     "Removed rewrite {0} due to problems with arguments."},
+    {OVERLAPPING_MATCHES,
+     "Overlapping matches: rewrites {0} and {1} replace the same code."},
+    {OVERLAPPING_ABORT, "Rewrite aborted: no code was optimized."},
+    {NESTED_MATCHES, "Nested matches: rewrites {0} and {1} have nested "
+                     "targets. Only one will be applied."},
 }};

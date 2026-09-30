@@ -60,7 +60,8 @@ public:
   /// \brief Rewrites a given set of DDG matches.
   ///
   /// \param rewrites List of possible rewrites to be applied.
+  /// \param Rewritten IDs of the inputs that were successfully rewritten.
   ///
-  /// \return List of applied rewrites.
-  std::set<int> rewrite(std::vector<Rewrite> &Rewrites);
+  /// \return Zero on success, an error code otherwise.
+  int rewrite(std::vector<Rewrite> &Rewrites, std::set<int> &Rewritten);
 };

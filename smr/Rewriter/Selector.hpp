@@ -35,8 +35,14 @@ public:
 
   /// \brief Builds the inteference graph.
   ///
+  /// Rewrites replacing the exact same operation are overlapping matches:
+  /// picking one of them would be arbitrary, so the build fails and no
+  /// rewrite is applied.
+  ///
   /// \param Rewrites The rewrites to be applied.
-  void build(std::vector<Rewrite> &Rewrites);
+  ///
+  /// \return Zero on success, Msg::OVERLAPPING_MATCHES otherwise.
+  int build(std::vector<Rewrite> &Rewrites);
 
   /// \brief Fetch the next rewrite to be applied.
   ///

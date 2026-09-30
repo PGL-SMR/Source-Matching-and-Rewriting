@@ -3,6 +3,7 @@
 #include "Logger/Messages.hpp"
 #include "Rewrite.hpp"
 #include <algorithm>
+#include <iterator>
 #include <llvm/Support/raw_ostream.h>
 #include <set>
 #include <string>
@@ -22,9 +23,31 @@ void Selector::dump() {
   }
 };
 
-void Selector::build(std::vector<Rewrite> &Rewrites) {
+int Selector::build(std::vector<Rewrite> &Rewrites) {
 
   info(Msg::SELECTING_REWRITES, Rewrites.size());
+
+  // Group rewrites by the exact operation they replace.
+  std::map<mlir::Operation *, std::set<int>> Owners;
+  for (auto &Rewrite : Rewrites)
+    Owners[Rewrite.Target].insert(Rewrite.Id);
+
+  // Several rewrites replacing the same operation are overlapping matches.
+  // Choosing one of them would be arbitrary, so refuse the whole rewrite.
+  bool Overlapping = false;
+  for (const auto &Entry : Owners) {
+    for (auto It = Entry.second.begin(); It != Entry.second.end(); ++It) {
+      for (auto Jt = std::next(It); Jt != Entry.second.end(); ++Jt) {
+        error(Msg::OVERLAPPING_MATCHES, *It, *Jt);
+        Overlapping = true;
+      }
+    }
+  }
+
+  if (Overlapping) {
+    error(Msg::OVERLAPPING_ABORT);
+    return Msg::OVERLAPPING_MATCHES;
+  }
 
   // Find common RDOs among different rewrites.
   for (auto &Rewrite : Rewrites) {
@@ -45,6 +68,14 @@ void Selector::build(std::vector<Rewrite> &Rewrites) {
         }
       }
     });
+
+    // Interfering rewrites have nested targets: warn, since only the one
+    // ranked first will actually be applied. Conflicts are symmetric, so
+    // report each pair once.
+    for (int RewriteId : Conflicts)
+      if (Rewrite.Id < RewriteId)
+        warn(Msg::NESTED_MATCHES, Rewrite.Id, RewriteId);
+
     this->InteferenceGraph[Rewrite.Id] = std::move(Conflicts);
   }
 
@@ -55,6 +86,8 @@ void Selector::build(std::vector<Rewrite> &Rewrites) {
   this->Ranking.reserve(Rewrites.size());
   for (auto &Rewrite : Rewrites)
     this->Ranking.push_back(Rewrite.Id);
+
+  return 0;
 };
 
 // Removes both the given node and its neighbors from the graph.
