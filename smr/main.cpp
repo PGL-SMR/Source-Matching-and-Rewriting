@@ -14,6 +14,7 @@
 #include "llvm/Support/InitLLVM.h"
 #include <cstdlib>
 #include <llvm/Support/raw_ostream.h>
+#include <set>
 #include <string>
 
 #define OVERVIEW "Source-based Matching and Rewriting tool.\n"
@@ -84,7 +85,10 @@ int main(int argc, char **argv) {
 
   info(Msg::START_REWRITING);
 
-  auto OptimizedInputs = Rewriter.rewrite(Data.getRewrites());
+  std::set<int> OptimizedInputs;
+  if (Rewriter.rewrite(Data.getRewrites(), OptimizedInputs) != 0)
+    return EXIT_FAILURE;
+
   llvm::StringRef Output(cl::Output);
 
   // No output specified: terminate.

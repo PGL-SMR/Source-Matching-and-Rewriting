@@ -168,12 +168,13 @@ int Rewriter::replace(Rewrite &Rewrite) {
   return 0;
 }
 
-std::set<int> Rewriter::rewrite(std::vector<Rewrite> &Rewrites) {
-  std::set<int> Rewritten;
+int Rewriter::rewrite(std::vector<Rewrite> &Rewrites,
+                      std::set<int> &Rewritten) {
   int NextRewrite = -1;
 
   // Build conflicting rewrites priority.
-  ConflictManager.build(Rewrites);
+  if (ConflictManager.build(Rewrites) != 0)
+    return Msg::OVERLAPPING_MATCHES;
 
   // Apply rewrites in order of priority.
   while ((NextRewrite = ConflictManager.next()) >= 0) {
@@ -185,5 +186,5 @@ std::set<int> Rewriter::rewrite(std::vector<Rewrite> &Rewrites) {
   }
   
 
-  return Rewritten;
+  return 0;
 };
