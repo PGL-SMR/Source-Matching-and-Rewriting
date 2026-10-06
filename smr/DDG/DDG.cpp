@@ -17,7 +17,6 @@
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/Value.h>
 #include <mlir/Support/LLVM.h>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -232,7 +231,7 @@ std::vector<Match> DDG::match(Input &Input) {
   return SuccessfulMatches;
 }
 
-std::vector<Match> DDG::run(std::set<mlir::Operation *> &&Candidates) {
+std::vector<Match> DDG::run(std::vector<mlir::Operation *> &&Candidates) {
   std::vector<ddg::Input> Inputs;
   std::vector<ddg::Match> Matches;
 
