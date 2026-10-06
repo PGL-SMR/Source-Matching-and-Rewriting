@@ -77,13 +77,25 @@ public:
   };
 
   /// \brief Get the replacement wrapper function.
+  ///
+  /// The replacement may define helpers next to the wrapper, so the wrapper
+  /// is the defined function taking the same arguments as the pattern's,
+  /// preferring the one with the same name.
+  ///
+  /// \return The wrapper function, or null if there is none.
   mlir::FunctionOpInterface getReplacementFunc() {
+    auto PatternFunc = getPatternFunc();
+    mlir::FunctionOpInterface Wrapper = nullptr;
     for (auto Func : Replacement.getOps<mlir::FunctionOpInterface>()) {
-      if (!Func.isExternal()) {
+      if (Func.isExternal() ||
+          Func.getArgumentTypes() != PatternFunc.getArgumentTypes())
+        continue;
+      if (Func.getName() == PatternFunc.getName())
         return Func;
-      }
+      if (!Wrapper)
+        Wrapper = Func;
     }
-    return *Replacement.getOps<mlir::FunctionOpInterface>().begin();
+    return Wrapper;
   };
 
   /// \brief Get the pattern's input operands (wrapper function arguments).
