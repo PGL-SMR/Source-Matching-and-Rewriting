@@ -173,7 +173,15 @@ std::vector<Match> CDG::run(std::vector<mlir::ModuleOp> &&Modules) {
 
   // Find cdg matches in CDG inputs.
   for (auto &CdgInput : CdgInputs) {
-    for (auto &Pair : CdgInput.getRdos()) {
+    // Visit RDOs in IR order: the RDO map is keyed by pointer, so iterating
+    // it directly would follow allocation order.
+    std::vector<std::pair<mlir::Operation *, std::pair<int, int>>> Rdos(
+        CdgInput.getRdos().begin(), CdgInput.getRdos().end());
+    std::sort(Rdos.begin(), Rdos.end(), [](const auto &A, const auto &B) {
+      return A.second.first < B.second.first;
+    });
+
+    for (auto &Pair : Rdos) {
       auto *Rdo = Pair.first;
       auto Path = CdgInput.getHashedPath(Rdo);
       auto *State = findFirst(Path);

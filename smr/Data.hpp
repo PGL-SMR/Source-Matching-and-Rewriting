@@ -133,7 +133,7 @@ public:
 
   mlir::Operation *getPatternRoot(int Idx);
   mlir::Block *getPatternEntryBlock(int Idx);
-  std::set<mlir::Operation *> getCdgCandidates();
+  std::vector<mlir::Operation *> getCdgCandidates();
   std::vector<Rewrite> &getRewrites();
 
   [[nodiscard]] std::string

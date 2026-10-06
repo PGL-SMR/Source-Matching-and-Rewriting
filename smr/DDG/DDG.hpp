@@ -130,10 +130,10 @@ public:
 
   /// \brief Run the pattern matching algorithm.
   ///
-  /// \param Candidates Set of candidate inputs to be matched.
+  /// \param Candidates Candidate inputs to be matched, in IR order.
   ///
   /// \return List of DDG matches.
-  std::vector<Match> run(std::set<mlir::Operation *> &&Candidates);
+  std::vector<Match> run(std::vector<mlir::Operation *> &&Candidates);
 };
 
 } // namespace ddg

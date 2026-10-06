@@ -126,11 +126,13 @@ mlir::Block *Data::getPatternEntryBlock(int Idx) {
   return nullptr;
 }
 
-std::set<mlir::Operation *> Data::getCdgCandidates() {
-  std::set<mlir::Operation *> Candidates;
-  std::transform(CdgMatches.begin(), CdgMatches.end(),
-                 std::inserter(Candidates, Candidates.begin()),
-                 [](const cdg::Match &Match) { return Match.getRdo(); });
+std::vector<mlir::Operation *> Data::getCdgCandidates() {
+  std::vector<mlir::Operation *> Candidates;
+  std::set<mlir::Operation *> Seen;
+  for (const auto &Match : CdgMatches) {
+    if (Seen.insert(Match.getRdo()).second)
+      Candidates.push_back(Match.getRdo());
+  }
   return Candidates;
 }
 
