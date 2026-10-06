@@ -73,6 +73,9 @@ int Rewriter::replace(Rewrite &Rewrite) {
   auto Operands = Rewrite.getInputOperands();
   auto Target = Rewrite.getTarget();
 
+  // No wrapper matching the pattern's arguments: skip the rewrite.
+  if (!Func)
+    return 1;
 
   injectDefinition(Rewrite.getInput(), Rewrite.getReplacement());
 
