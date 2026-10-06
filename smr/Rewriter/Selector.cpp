@@ -94,11 +94,12 @@ int Selector::build(std::vector<Rewrite> &Rewrites) {
 int Selector::select(int RewriteId) {
   info(Msg::SELECT_REWRITE, RewriteId);
 
+  // Iterate over a copy: remove() also erases the back-edges stored here.
+  auto Neighbors = this->InteferenceGraph.at(RewriteId);
+
   // Remove selected and conflicting rewrites that can no longer be applied.
-  for (int Neighbor : this->InteferenceGraph.at(RewriteId)) {
-    this->InteferenceGraph[Neighbor].erase(RewriteId);
+  for (int Neighbor : Neighbors)
     remove(Neighbor);
-  }
   this->InteferenceGraph.erase(RewriteId);
 
   // Remove selected rewrite from ranking.
