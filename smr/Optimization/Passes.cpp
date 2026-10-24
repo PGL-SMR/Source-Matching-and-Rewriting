@@ -8,6 +8,7 @@ void registerTilingPass();
 void registerDCEPass();
 void registerInlinePass();
 void registerCanonicalizePipeline();
+void registerTestCanonicalLoopsPass();
 
 void registerSmrPasses() {
   registerUnrollPass();
@@ -15,6 +16,7 @@ void registerSmrPasses() {
   registerDCEPass();
   registerInlinePass();
   registerCanonicalizePipeline();
+  registerTestCanonicalLoopsPass();
 }
 
 } // namespace optimization
