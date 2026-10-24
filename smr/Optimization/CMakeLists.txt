@@ -1,4 +1,6 @@
 add_library(Optimization STATIC 
+		Analysis/CanonicalLoop.cpp
+		Analysis/TestCanonicalLoops.cpp
 		Manager.cpp
 		Passes.cpp
 		Transforms/Canonicalize.cpp

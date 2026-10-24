@@ -8,3 +8,19 @@ RUN: cir-translate --cir-to-llvmir %t.mlir -o %t.ll
 RUN: clang %t.ll -lopenblas -lpthread -lm -o %t.bin
 RUN: %t.bin | grep -v Tempo > %t.out
 RUN: diff %t.ref.out %t.out
+
+The dot product loop that replaces the inner loop of mm_mul is unrolled by 4,
+then followed by the loop for the leftover iterations.
+
+RUN: FileCheck %s --input-file=%t.mlir
+
+CHECK-LABEL: cir.func {{.*}}@mm_mul(
+CHECK:         cir.for : cond {
+CHECK:         } body {
+CHECK-COUNT-4:   cir.binop(mul, {{.*}}) : !cir.double
+CHECK-NOT:       cir.binop(mul
+CHECK:         } step {
+CHECK:         cir.for : cond {
+CHECK:         } body {
+CHECK-COUNT-1:   cir.binop(mul, {{.*}}) : !cir.double
+CHECK:         } step {
