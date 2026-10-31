@@ -215,4 +215,19 @@ std::optional<CanonicalLoop> matchCanonicalLoop(cir::ForOp Loop,
   return Result;
 }
 
+llvm::SmallVector<CanonicalLoop> getInnermostCanonicalLoops(cir::FuncOp Func) {
+  llvm::SmallVector<CanonicalLoop> Loops;
+  Func.walk([&](cir::ForOp For) {
+    bool Innermost =
+        !For.getBody()
+             .walk([](cir::ForOp) { return mlir::WalkResult::interrupt(); })
+             .wasInterrupted();
+    if (!Innermost || !For.getBody().hasOneBlock())
+      return;
+    if (auto Loop = matchCanonicalLoop(For))
+      Loops.push_back(*Loop);
+  });
+  return Loops;
+}
+
 } // namespace optimization

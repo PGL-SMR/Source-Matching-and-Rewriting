@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "llvm/ADT/SmallVector.h"
 #include <optional>
 #include <string>
 
@@ -34,5 +35,9 @@ struct CanonicalLoop {
 /// which condition does not hold.
 std::optional<CanonicalLoop> matchCanonicalLoop(cir::ForOp Loop,
                                                 std::string *Reason = nullptr);
+
+/// The canonical loops of Func that contain no other loop and whose body is a
+/// single block.
+llvm::SmallVector<CanonicalLoop> getInnermostCanonicalLoops(cir::FuncOp Func);
 
 } // namespace optimization

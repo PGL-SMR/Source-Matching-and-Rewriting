@@ -112,19 +112,7 @@ struct UnrollPass
     if (Factor <= 1)
       return;
 
-    llvm::SmallVector<CanonicalLoop> Loops;
-    getOperation().walk([&](cir::ForOp For) {
-      bool Innermost =
-          !For.getBody()
-               .walk([](cir::ForOp) { return mlir::WalkResult::interrupt(); })
-               .wasInterrupted();
-      if (!Innermost || !For.getBody().hasOneBlock())
-        return;
-      if (auto Loop = matchCanonicalLoop(For))
-        Loops.push_back(*Loop);
-    });
-
-    for (CanonicalLoop &Loop : Loops)
+    for (CanonicalLoop &Loop : getInnermostCanonicalLoops(getOperation()))
       unroll(Loop, Factor);
   }
 
