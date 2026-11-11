@@ -9,6 +9,15 @@
 namespace optimization {
 namespace {
 
+/// Returns the body region for supported CIR loop operations.
+mlir::Region *getLoopBody(mlir::Operation *Loop) {
+  if (auto forOp = llvm::dyn_cast<cir::ForOp>(Loop))
+    return &forOp.getBody();
+  if (auto doWhileOp = llvm::dyn_cast<cir::DoWhileOp>(Loop))
+    return &doWhileOp.getBody();
+  return nullptr;
+}
+
 /// An integer division traps on a zero divisor, so it cannot run in a place
 /// where the loop might not have run it.
 bool mayTrap(mlir::Operation *Op) {
@@ -20,33 +29,22 @@ bool mayTrap(mlir::Operation *Op) {
 
 /// Op runs inside the cond or step of a loop, which later passes expect to
 /// find as they are.
-bool isInLoopHeader(mlir::Operation *Op, cir::ForOp Loop) {
+bool isInLoopHeader(mlir::Operation *Op, mlir::Operation *Loop) {
+  mlir::Region *Body = getLoopBody(Loop);
   for (mlir::Region *Region = Op->getParentRegion();
-       Region && Region->getParentOp() != Loop.getOperation();
+       Region && Region->getParentOp() != Loop;
        Region = Region->getParentOp()->getParentRegion()) {
-    auto Inner = mlir::dyn_cast<cir::LoopOpInterface>(Region->getParentOp());
-    if (Inner && Region != &Inner.getBody())
+    if (Region->getParentOp() == Loop && Region != Body)
       return true;
   }
   return false;
 }
 
 /// Moves out of Loop, to just before it, the operations of its body that
-/// compute the same value in every iteration:
-///
-///   - operations without effects, except integer division,
-///   - loads of slots the loop does not write. A slot whose address is never
-///     taken (isPrivateSlot) cannot be written by a call or through a pointer
-///     either, so this is where clang's scalars, which all live in memory, are
-///     found,
-///   - calls to the functions in Pure with arguments that are not pointers.
-///     The pattern asserts these have no effect and always return.
-///
-/// Everything moved is safe to run when the loop does not, and an operation
-/// that uses a moved value moves too.
+/// compute the same value in every iteration. Supports cir.for and cir.dowhile.
 class Hoister {
 public:
-  Hoister(cir::ForOp Loop, const llvm::StringSet<> &Pure)
+  Hoister(mlir::Operation *Loop, const llvm::StringSet<> &Pure)
       : Loop(Loop), Pure(Pure) {
     Loop->walk([&](cir::StoreOp Store) {
       if (auto Slot = Store.getAddr().getDefiningOp<cir::AllocaOp>())
@@ -55,8 +53,12 @@ public:
   }
 
   unsigned run() {
+    mlir::Region *Body = getLoopBody(Loop);
+    if (!Body)
+      return 0;
+
     llvm::SmallVector<mlir::Operation *> Moved;
-    Loop.getBody().walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *Op) {
+    Body->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *Op) {
       if (canHoist(Op)) {
         Hoisted.insert(Op);
         Moved.push_back(Op);
@@ -97,7 +99,7 @@ private:
     return mlir::isPure(Op) && !mayTrap(Op);
   }
 
-  cir::ForOp Loop;
+  mlir::Operation *Loop;
   const llvm::StringSet<> &Pure;
   llvm::SmallPtrSet<mlir::Operation *, 8> Written;
   llvm::SmallPtrSet<mlir::Operation *, 16> Hoisted;
@@ -117,7 +119,7 @@ struct LICMPass
 
   llvm::StringRef getArgument() const final { return "smr-licm"; }
   llvm::StringRef getDescription() const final {
-    return "Hoist loop invariant code out of cir.for loops";
+    return "Hoist loop invariant code out of cir.for and cir.dowhile loops";
   }
 
   void runOnOperation() override {
@@ -125,10 +127,13 @@ struct LICMPass
     for (const std::string &Name : Pure)
       PureNames.insert(Name);
 
-    // Inner loops first, so that what they leave behind can move again.
+    // Post-order walk ensures inner loops (for or dowhile) are processed first
     unsigned Hoisted = 0;
-    getOperation().walk(
-        [&](cir::ForOp Loop) { Hoisted += Hoister(Loop, PureNames).run(); });
+    getOperation().walk<mlir::WalkOrder::PostOrder>([&](mlir::Operation *Op) {
+      if (llvm::isa<cir::ForOp, cir::DoWhileOp>(Op))
+        Hoisted += Hoister(Op, PureNames).run();
+    });
+
     if (Changed)
       *Changed += Hoisted;
   }
