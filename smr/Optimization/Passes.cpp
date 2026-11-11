@@ -10,6 +10,10 @@ void registerInlinePass();
 void registerLICMPass();
 void registerCanonicalizePipeline();
 void registerTestCanonicalLoopsPass();
+void registerCSEPass();
+void registerConstantFoldingPass(); 
+void registerConstantPropagationPass();
+void registerMem2RegPass();
 
 void registerSmrPasses() {
   registerUnrollPass();
@@ -19,6 +23,10 @@ void registerSmrPasses() {
   registerLICMPass();
   registerCanonicalizePipeline();
   registerTestCanonicalLoopsPass();
+  registerCSEPass();
+  registerConstantFoldingPass();
+  registerConstantPropagationPass();
+  registerMem2RegPass();
 }
 
 } // namespace optimization

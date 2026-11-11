@@ -73,10 +73,22 @@ int Manager::run(mlir::ModuleOp Module,
       addDCEPasses(PM);
       break;
     case INLINE:
-      PM.addPass(createInlinePass());
+      PM.addPass(createInlinePass(NewCounter(OptName)));
       break;
     case CANONICALIZE:
       addCanonicalizePasses(PM);
+      break;
+    case CSE:
+      PM.addPass(createCSEPass(NewCounter(OptName)));
+      break;
+    case CONSTANT_FOLD:
+      PM.addPass(createConstantFoldingPass(NewCounter(OptName)));
+      break;
+    case CONSTANT_PROPAGATION:
+      PM.addPass(createConstantPropagationPass(NewCounter(OptName)));
+      break;
+    case MEM2REG:
+      PM.addPass(createMem2RegPass(NewCounter(OptName)));
       break;
     case VECTORIZE:
     case UNKNOWN:
