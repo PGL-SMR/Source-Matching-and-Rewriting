@@ -18,7 +18,11 @@ enum Opt {
   INLINE,
   LICM,
   DCE,
-  CANONICALIZE
+  CANONICALIZE,
+  CSE,
+  CONSTANT_FOLD,
+  CONSTANT_PROPAGATION,
+  MEM2REG
 };
 
 /// Metadata structure for an optimization pass.
@@ -29,14 +33,18 @@ struct OptimizationInfo {
 };
 
 /// Table of valid optimization passes and their descriptions.
-const std::array<OptimizationInfo, 7> Optimizations = {{
+const std::array<OptimizationInfo, 11> Optimizations = {{
     {UNROLL, "unroll", "Loop unrolling optimization"},
     {TILING, "tiling", "Loop tiling optimization"},
     {VECTORIZE, "vectorize", "Vectorization optimization"},
     {INLINE, "inline", "Function inlining optimization"},
     {LICM, "licm", "Loop invariant code motion"},
     {DCE, "dce", "Dead code elimination optimization"},
-    {CANONICALIZE, "canonicalize", "CIR canonicalization and simplification"}
+    {CANONICALIZE, "canonicalize", "CIR canonicalization and simplification"},
+    {CSE, "cse", "Common subexpression elimination"},
+    {CONSTANT_FOLD, "const_fold", "Constant folding optimization"},
+    {CONSTANT_PROPAGATION, "const_prop", "Constant propagation optimization"},
+    {MEM2REG, "mem2reg", "Promote memory allocations to SSA registers"}
 }};
 
 /// Structure storing the optimization pass code and its argument list.

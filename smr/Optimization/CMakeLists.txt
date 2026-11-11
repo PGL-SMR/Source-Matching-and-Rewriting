@@ -9,6 +9,10 @@ add_library(Optimization STATIC
 		Transforms/LICM.cpp
 		Transforms/Tiling.cpp
 		Transforms/Unroll.cpp
+		Transforms/CSE.cpp
+		Transforms/ConstFold.cpp
+		Transforms/ConstProp.cpp
+		Transforms/Mem2Reg.cpp
 )
 
 target_link_libraries(Optimization

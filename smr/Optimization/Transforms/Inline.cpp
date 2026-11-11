@@ -47,6 +47,11 @@ struct InlinePass
                                mlir::OperationPass<mlir::ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(InlinePass)
 
+  InlinePass() = default;
+  InlinePass(const InlinePass &Other)
+      : PassWrapper(Other), Changed(Other.Changed) {}
+  InlinePass(ChangeCounter *Counter) : Changed(Counter) {}
+
   llvm::StringRef getArgument() const final { return "smr-inline"; }
   llvm::StringRef getDescription() const final {
     return "Inline calls to functions defined in the module";
@@ -56,17 +61,17 @@ struct InlinePass
     mlir::ModuleOp module = getOperation();
     mlir::MLIRContext *ctx = &getContext();
 
-    // 1. Ensure a DialectInlinerInterface is registered for all loaded dialects
+    // Ensure a DialectInlinerInterface is registered for all loaded dialects
     for (mlir::Dialect *dialect : ctx->getLoadedDialects()) {
       if (!dialect->getRegisteredInterface<mlir::DialectInlinerInterface>()) {
         dialect->addInterface<SMRInlinerInterface>();
       }
     }
 
-    // 2. Instantiate the inlining interface
+    // Instantiate the inlining interface
     mlir::InlinerInterface inliner(ctx);
 
-    // 3. Define the region cloning callback matching CloneCallbackSigTy
+    // Define the region cloning callback matching CloneCallbackSigTy
     auto cloneCallback = [](mlir::OpBuilder &builder, mlir::Region *src,
                             mlir::Block * /*inlineBlock*/,
                             mlir::Block *postInsertBlock,
@@ -78,7 +83,7 @@ struct InlinePass
       }
     };
 
-    // 4. Fixed-point loop to support nested inlining
+    // Fixed-point loop to support nested inlining
     constexpr unsigned kMaxIterations = 16;
     unsigned iterationCount = 0;
     bool changed = true;
@@ -127,16 +132,20 @@ struct InlinePass
                                              callee, calleeRegion))) {
           callOp.erase();
           changed = true;
+          if (Changed)
+            ++*Changed;
         }
       }
     }
   }
+
+  ChangeCounter *Changed = nullptr;
 };
 
 } // namespace
 
-std::unique_ptr<mlir::Pass> createInlinePass() {
-  return std::make_unique<InlinePass>();
+std::unique_ptr<mlir::Pass> createInlinePass(ChangeCounter *Changed) {
+  return std::make_unique<InlinePass>(Changed);
 }
 
 void registerInlinePass() { mlir::PassRegistration<InlinePass>(); }

@@ -32,7 +32,21 @@ createLICMPass(llvm::ArrayRef<std::string> PureFunctions = {},
 void addDCEPasses(mlir::OpPassManager &PM);
 
 /// Inlines the calls to functions defined in the module.
-std::unique_ptr<mlir::Pass> createInlinePass();
+std::unique_ptr<mlir::Pass> createInlinePass(ChangeCounter *Changed = nullptr);
+
+/// Eliminates common subexpressions in CIR operations.
+std::unique_ptr<mlir::Pass> createCSEPass(ChangeCounter *Changed = nullptr);
+
+/// Folds constant expressions in CIR operations.
+std::unique_ptr<mlir::Pass> createConstantFoldingPass(ChangeCounter *Changed = nullptr);
+
+/// Performs constant propagation in CIR operations, replacing loads of known
+/// constant values with the constants themselves.
+std::unique_ptr<mlir::Pass> createConstantPropagationPass(ChangeCounter *Changed = nullptr);   
+
+/// Transforms memory accesses to promote allocas to SSA values, eliminating
+/// the allocas and their loads and stores.
+std::unique_ptr<mlir::Pass> createMem2RegPass(ChangeCounter *Changed = nullptr);
 
 /// Adds CIR's own cleanups: cir-canonicalize, then cir-simplify.
 void addCanonicalizePasses(mlir::OpPassManager &PM);
