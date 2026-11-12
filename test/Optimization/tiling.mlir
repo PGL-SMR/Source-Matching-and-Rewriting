@@ -146,7 +146,8 @@ module {
 
   // Three loops, and a statement that only writes a slot local to the body
   // before the inner loop. Only the two inner loops are tiled, and the loop
-  // above them runs in full inside the tiles, guarded by its own condition.
+  // above them runs in full inside the tiles, guarded by its own condition and
+  // the one of k. The tiles of j go outside the tiles of k.
   //
   // CHECK-LABEL: cir.func @chain(
   // CHECK-DAG:     %[[K:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["k", init]
@@ -155,33 +156,35 @@ module {
   // CHECK-DAG:     cir.alloca !s32i, !cir.ptr<!s32i>, ["part", init]
   //
   // CHECK:         cir.if
-  // CHECK:           cir.for : cond {
-  // CHECK:             cir.cmp(lt, {{.*}}, %arg2)
-  // CHECK:           } body {
-  // CHECK:             cir.store {{.*}}, %[[START_K]]
-  // CHECK:             cir.do {
+  // CHECK:           cir.if
+  // CHECK:             cir.for : cond {
+  // CHECK:               cir.cmp(lt, {{.*}}, %arg1)
+  // CHECK:             } body {
   // CHECK:               cir.store {{.*}}, %[[START_J]]
-  // CHECK:               cir.for : cond {
-  // CHECK:                 cir.cmp(lt, {{.*}}, %arg3)
-  // CHECK:               } body {
-  // CHECK:                 %[[TILE_K:.*]] = cir.load %[[START_K]]
-  // CHECK:                 cir.store %[[TILE_K]], %[[K]]
-  // CHECK:                 %[[END_K:.*]] = cir.select
+  // CHECK:               cir.do {
+  // CHECK:                 cir.store {{.*}}, %[[START_K]]
   // CHECK:                 cir.for : cond {
-  // CHECK:                   cir.cmp(lt, {{.*}}, %[[END_K]])
+  // CHECK:                   cir.cmp(lt, {{.*}}, %arg3)
   // CHECK:                 } body {
-  // CHECK:                   cir.store {{.*}} : !s32i, !cir.ptr<!s32i>
-  // CHECK:                   cir.load %[[START_J]]
-  // CHECK:                   %[[END_J:.*]] = cir.select
+  // CHECK:                   %[[TILE_K:.*]] = cir.load %[[START_K]]
+  // CHECK:                   cir.store %[[TILE_K]], %[[K]]
+  // CHECK:                   %[[END_K:.*]] = cir.select
   // CHECK:                   cir.for : cond {
-  // CHECK:                     cir.cmp(lt, {{.*}}, %[[END_J]])
+  // CHECK:                     cir.cmp(lt, {{.*}}, %[[END_K]])
   // CHECK:                   } body {
-  // CHECK:                     cir.ptr_stride %arg0
+  // CHECK:                     cir.store {{.*}} : !s32i, !cir.ptr<!s32i>
+  // CHECK:                     cir.load %[[START_J]]
+  // CHECK:                     %[[END_J:.*]] = cir.select
+  // CHECK:                     cir.for : cond {
+  // CHECK:                       cir.cmp(lt, {{.*}}, %[[END_J]])
+  // CHECK:                     } body {
+  // CHECK:                       cir.ptr_stride %arg0
+  // CHECK:                     }
   // CHECK:                   }
   // CHECK:                 }
-  // CHECK:               }
-  // CHECK:             } while {
-  // CHECK:           }
+  // CHECK:               } while {
+  // CHECK:                 cir.cmp(lt, {{.*}}, %arg2)
+  // CHECK:             }
   // CHECK-NOT:     cir.for
   // CHECK:         cir.return
   cir.func @chain(%arg0: !cir.ptr<!s32i>, %arg1: !s32i, %arg2: !s32i, %arg3: !s32i) {

@@ -110,6 +110,17 @@ void cloneCond(mlir::OpBuilder &Builder, cir::ForOp Loop) {
     Builder.clone(Op, Mapping);
 }
 
+/// Clones the condition of Loop without its terminator and returns the value
+/// it tests.
+mlir::Value cloneCondValue(mlir::OpBuilder &Builder, cir::ForOp Loop) {
+  mlir::IRMapping Mapping;
+  for (mlir::Operation &Op : Loop.getCond().front().without_terminator())
+    Builder.clone(Op, Mapping);
+  auto Condition =
+      mlir::cast<cir::ConditionOp>(Loop.getCond().front().getTerminator());
+  return Mapping.lookupOrDefault(Condition.getCondition());
+}
+
 /// Strip-mines Loop in tiles of Size iterations:
 ///
 ///   for (; iv < ub; iv += s) body
@@ -319,7 +330,7 @@ std::optional<CanonicalLoop> matchAbove(CanonicalLoop Outer) {
 ///
 /// When Above is given, a loop that holds Outer, it is not tiled and runs in
 /// full inside every pair of tiles, so Outer and Inner are the two inner loops
-/// of a three loop nest:
+/// of a three loop nest. The tiles of Inner go outside the tiles of Outer:
 ///
 ///   for (p = lbp; p < ubp; p += sp)
 ///     for (k = lbk; k < ubk; k += sk) { stmts; for (j ...) body }
@@ -329,26 +340,34 @@ std::optional<CanonicalLoop> matchAbove(CanonicalLoop Outer) {
 ///   p = lbp;
 ///   if (p < ubp) {
 ///     k = lbk;
-///     for (; k < ubk;) {
-///       k0 = k; j = lbj;
-///       do {
-///         j0 = j;
-///         p = lbp;
-///         for (; p < ubp; p += sp) {
-///           k = k0; endk = end(k);
-///           for (; k < endk; k += sk) {
-///             stmts; j = j0; endj = end(j);
-///             for (; j < endj; j += sj) body
+///     if (k < ubk) {
+///       j = lbj;
+///       for (; j < ubj;) {
+///         j0 = j; k = lbk;
+///         do {
+///           k0 = k;
+///           p = lbp;
+///           for (; p < ubp; p += sp) {
+///             k = k0; endk = end(k);
+///             for (; k < endk; k += sk) {
+///               stmts; j = j0; endj = end(j);
+///               for (; j < endj; j += sj) body
+///             }
 ///           }
-///         }
-///       } while (j < ubj);
+///         } while (k < ubk);
+///       }
 ///     }
 ///   }
 ///
+/// A tile of j goes through all the tiles of k before the next one starts, so
+/// what the loop above touches in one tile of j stays in cache across them. In
+/// a matrix product with the loops i, k, j that is a strip of C, which with the
+/// tiles of k outside would be walked again for every one of them.
+///
 /// The statements before the inner loop run again for every tile of j, which
 /// is fine because they only compute values and write slots local to the body.
-/// The if keeps the nest from running when the loop above has no iterations,
-/// since then k would never advance.
+/// The two ifs keep the nest from running when the loop above or the one of k
+/// has no iterations, since then k or j would never advance.
 ///
 /// Tiling reorders the iterations of the nest, which is only valid when the
 /// pattern guarantees they can run in any order. Nothing here checks it.
@@ -367,35 +386,44 @@ void tile(CanonicalLoop Outer, CanonicalLoop Inner,
   mlir::Block &InnerBody = *J->getBlock();
   mlir::Value EndI;
 
-  auto BuildTiles = [&](mlir::OpBuilder &Builder) {
+  // The tiles of Tile go outside the tiles of Other. Each tile of Tile is
+  // followed by a do loop over the tiles of Other, where the loop above, if any,
+  // restarts, and the IV of Tile is left at the start of the next tile by its
+  // point loop.
+  auto BuildTiles = [&](mlir::OpBuilder &Builder, cir::ForOp Tile,
+                        CanonicalLoop TileLoop, cir::AllocaOp TileStart,
+                        cir::ForOp Other, CanonicalLoop OtherLoop,
+                        cir::AllocaOp OtherStart, mlir::Block *OtherHome) {
     return cir::ForOp::create(
         Builder, Loc,
         [&](mlir::OpBuilder &Builder, mlir::Location) {
-          cloneCond(Builder, I);
+          cloneCond(Builder, Tile);
         },
         [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-          cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Outer.IV),
-                               StartI);
+          cir::StoreOp::create(Builder, Loc, load(Builder, Loc, TileLoop.IV),
+                               TileStart);
           mlir::IRMapping Mapping;
           cir::StoreOp::create(
               Builder, Loc,
-              cloneValue(Builder, *Inner.LowerBound, &InnerBody, Mapping),
-              Inner.IV);
+              cloneValue(Builder, *OtherLoop.LowerBound, OtherHome, Mapping),
+              OtherLoop.IV);
           cir::DoWhileOp::create(
               Builder, Loc,
               [&](mlir::OpBuilder &Builder, mlir::Location) {
-                cloneCond(Builder, J);
+                cloneCond(Builder, Other);
               },
               [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
-                cir::StoreOp::create(Builder, Loc, load(Builder, Loc, Inner.IV),
-                                     StartJ);
+                cir::StoreOp::create(Builder, Loc,
+                                     load(Builder, Loc, OtherLoop.IV),
+                                     OtherStart);
                 if (Above) {
                   cir::StoreOp::create(Builder, Loc, *Above->LowerBound,
                                        Above->IV);
                 } else {
-                  cir::StoreOp::create(Builder, Loc, load(Builder, Loc, StartI),
-                                       Outer.IV);
-                  EndI = computeTileEnd(Builder, Loc, Outer, Size);
+                  cir::StoreOp::create(Builder, Loc,
+                                       load(Builder, Loc, TileStart),
+                                       TileLoop.IV);
+                  EndI = computeTileEnd(Builder, Loc, TileLoop, Size);
                 }
                 cir::YieldOp::create(Builder, Loc);
               });
@@ -409,25 +437,31 @@ void tile(CanonicalLoop Outer, CanonicalLoop Inner,
   Rewriter.setInsertionPoint(Wrapped);
   cir::ForOp Tiles;
   if (Above) {
-    mlir::IRMapping Mapping;
-    for (mlir::Operation &Op :
-         Above->Loop.getCond().front().without_terminator())
-      Rewriter.clone(Op, Mapping);
-    auto Condition = mlir::cast<cir::ConditionOp>(
-        Above->Loop.getCond().front().getTerminator());
     cir::IfOp::create(
-        Rewriter, Loc, Mapping.lookupOrDefault(Condition.getCondition()), false,
+        Rewriter, Loc, cloneCondValue(Rewriter, Above->Loop), false,
         [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
           mlir::IRMapping Lower;
           cir::StoreOp::create(
               Builder, Loc,
               cloneValue(Builder, *Outer.LowerBound, I->getBlock(), Lower),
               Outer.IV);
-          Tiles = BuildTiles(Builder);
+          cir::IfOp::create(
+              Builder, Loc, cloneCondValue(Builder, I), false,
+              [&](mlir::OpBuilder &Builder, mlir::Location Loc) {
+                mlir::IRMapping Start;
+                cir::StoreOp::create(
+                    Builder, Loc,
+                    cloneValue(Builder, *Inner.LowerBound, &InnerBody, Start),
+                    Inner.IV);
+                Tiles = BuildTiles(Builder, J, Inner, StartJ, I, Outer, StartI,
+                                   I->getBlock());
+                cir::YieldOp::create(Builder, Loc);
+              });
           cir::YieldOp::create(Builder, Loc);
         });
   } else {
-    Tiles = BuildTiles(Rewriter);
+    Tiles = BuildTiles(Rewriter, I, Outer, StartI, J, Inner, StartJ,
+                       &InnerBody);
   }
   auto Blocks = mlir::cast<cir::DoWhileOp>(
       Tiles.getBody().front().getTerminator()->getPrevNode());
