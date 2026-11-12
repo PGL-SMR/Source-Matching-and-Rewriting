@@ -51,6 +51,9 @@ std::unique_ptr<mlir::Pass> createMem2RegPass(ChangeCounter *Changed = nullptr);
 /// Performs fast math optimizations.
 std::unique_ptr<mlir::Pass> createFastMathPass(ChangeCounter *Changed = nullptr);
 
+/// Vectorizes canonical cir.for reduction and elementwise loops. 
+std::unique_ptr<mlir::Pass> createVectorizePass(ChangeCounter *Changed = nullptr);
+
 /// Adds CIR's own cleanups: cir-canonicalize, then cir-simplify.
 void addCanonicalizePasses(mlir::OpPassManager &PM);
 

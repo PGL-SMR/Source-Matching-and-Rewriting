@@ -94,6 +94,8 @@ int Manager::run(mlir::ModuleOp Module,
       PM.addPass(createFastMathPass(NewCounter(OptName)));
       break;
     case VECTORIZE:
+      PM.addPass(createVectorizePass(NewCounter(OptName)));
+      break;
     case UNKNOWN:
       warn(Msg::OPTIMIZATION_NOT_IMPLEMENTED, OptName);
       break;

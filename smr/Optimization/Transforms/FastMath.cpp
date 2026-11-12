@@ -1,21 +1,30 @@
 #include "Passes.hpp"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 
 namespace optimization {
 namespace {
 
-bool isCIRFloatType(mlir::Type Type) {
-  return mlir::isa<cir::FPTypeInterface>(Type);
+/// Returns the underlying scalar floating-point type for scalar or vector
+/// floating-point CIR types, or a null Type otherwise.
+mlir::Type getScalarFloatType(mlir::Type Type) {
+  if (auto VecTy = mlir::dyn_cast<cir::VectorType>(Type))
+    Type = VecTy.getElementType();
+  return mlir::isa<cir::FPTypeInterface>(Type) ? Type : mlir::Type();
 }
 
+bool isCIRFloatType(mlir::Type Type) {
+  return static_cast<bool>(getScalarFloatType(Type));
+}
+
+/// Checks whether two floating-point SSA values represent the same value,
+/// including consecutive loads from the same non-volatile memory slot with no
+/// intervening memory writes.
 bool isSameFPValue(mlir::Value A, mlir::Value B) {
   if (A == B)
     return true;
@@ -38,7 +47,11 @@ bool isSameFPValue(mlir::Value A, mlir::Value B) {
   return true;
 }
 
+/// Extracts a floating-point constant from either a scalar cir.const or a
+/// splatted vector constant (cir.vec.splat of cir.const).
 std::optional<llvm::APFloat> getFPConstant(mlir::Value Val) {
+  if (auto SplatOp = Val.getDefiningOp<cir::VecSplatOp>())
+    Val = SplatOp->getOperand(0);
   auto ConstOp = Val.getDefiningOp<cir::ConstantOp>();
   if (!ConstOp)
     return std::nullopt;
@@ -47,8 +60,16 @@ std::optional<llvm::APFloat> getFPConstant(mlir::Value Val) {
   return std::nullopt;
 }
 
+/// Materializes a scalar or splatted vector floating-point constant.
 mlir::Value createFPConstant(mlir::RewriterBase &Rewriter, mlir::Location Loc,
                              mlir::Type Type, const llvm::APFloat &Val) {
+  if (auto VecTy = mlir::dyn_cast<cir::VectorType>(Type)) {
+    mlir::Type ElemTy = VecTy.getElementType();
+    auto ScalarConst = cir::ConstantOp::create(
+        Rewriter, Loc, ElemTy, cir::FPAttr::get(ElemTy, Val));
+    return cir::VecSplatOp::create(Rewriter, Loc, VecTy,
+                                   ScalarConst.getResult());
+  }
   auto Attr = cir::FPAttr::get(Type, Val);
   return cir::ConstantOp::create(Rewriter, Loc, Type, Attr);
 }
@@ -66,10 +87,7 @@ bool isMinusOne(const llvm::APFloat &V) {
   return V.compare(NegOne) == llvm::APFloat::cmpEqual;
 }
 
-//===----------------------------------------------------------------------===//
-// 0. Desenrolamento de Reduções FP com Múltiplos Acumuladores Independentes
-//===----------------------------------------------------------------------===//
-
+/// Returns true if the given SSA value is invariant with respect to ScopeOp.
 bool isInvariantInOp(mlir::Value V, mlir::Operation *ScopeOp) {
   mlir::Operation *Def = V.getDefiningOp();
   if (!Def)
@@ -91,271 +109,6 @@ bool isInvariantInOp(mlir::Value V, mlir::Operation *ScopeOp) {
   return false;
 }
 
-bool splitFPReductionLoop(cir::ForOp ForOp, mlir::RewriterBase &Rewriter,
-                          unsigned UnrollFactor) {
-  if (UnrollFactor < 2)
-    return false;
-  if (!ForOp.getCond().hasOneBlock() || !ForOp.getBody().hasOneBlock() ||
-      !ForOp.getStep().hasOneBlock())
-    return false;
-
-  mlir::Block &CondBlock = ForOp.getCond().front();
-  mlir::Block &BodyBlock = ForOp.getBody().front();
-  mlir::Block &StepBlock = ForOp.getStep().front();
-
-  // 1. Analisa condição: i < bound ou i <= bound
-  mlir::Operation *CondTerm = CondBlock.getTerminator();
-  if (CondTerm->getNumOperands() != 1)
-    return false;
-  auto Cmp = CondTerm->getOperand(0).getDefiningOp<cir::CmpOp>();
-  if (!Cmp || (Cmp.getKind() != cir::CmpOpKind::lt &&
-               Cmp.getKind() != cir::CmpOpKind::le))
-    return false;
-
-  auto CondIVLoad = Cmp.getLhs().getDefiningOp<cir::LoadOp>();
-  if (!CondIVLoad || CondIVLoad.getIsVolatile())
-    return false;
-  mlir::Value IVSlot = CondIVLoad.getAddr();
-  auto IVSlotOp = IVSlot.getDefiningOp<cir::AllocaOp>();
-  if (!IVSlotOp || ForOp->isAncestor(IVSlotOp))
-    return false;
-
-  auto IVTy = mlir::dyn_cast<cir::IntType>(CondIVLoad.getType());
-  if (!IVTy || !IVTy.isSigned())
-    return false;
-
-  mlir::Value Bound = Cmp.getRhs();
-  if (!isInvariantInOp(Bound, ForOp))
-    return false;
-
-  // 2. Analisa step: ++i ou i += 1
-  cir::StoreOp StepStore = nullptr;
-  for (mlir::Operation &Op : StepBlock.without_terminator()) {
-    if (auto Store = mlir::dyn_cast<cir::StoreOp>(&Op)) {
-      if (StepStore)
-        return false;
-      StepStore = Store;
-    }
-  }
-  if (!StepStore || StepStore.getAddr() != IVSlot)
-    return false;
-
-  bool ValidUnitStep = false;
-  if (auto Inc = StepStore.getValue().getDefiningOp<cir::UnaryOp>()) {
-    if (Inc.getKind() == cir::UnaryOpKind::Inc) {
-      if (auto Load = Inc.getInput().getDefiningOp<cir::LoadOp>())
-        ValidUnitStep = (Load.getAddr() == IVSlot);
-    }
-  } else if (auto Add = StepStore.getValue().getDefiningOp<cir::BinOp>()) {
-    if (Add.getKind() == cir::BinOpKind::Add) {
-      auto Load = Add.getLhs().getDefiningOp<cir::LoadOp>();
-      auto Const = Add.getRhs().getDefiningOp<cir::ConstantOp>();
-      if (Load && Load.getAddr() == IVSlot && Const) {
-        if (auto IntAttr = mlir::dyn_cast<cir::IntAttr>(Const.getValue()))
-          ValidUnitStep = (IntAttr.getValue() == 1);
-      }
-    }
-  }
-  if (!ValidUnitStep)
-    return false;
-
-  // 3. Analisa corpo: localiza acumulador FP único (sum += expr ou prod *= expr)
-  cir::StoreOp AccStore = nullptr;
-  for (mlir::Operation &Op : BodyBlock.without_terminator()) {
-    if (auto Store = mlir::dyn_cast<cir::StoreOp>(&Op)) {
-      if (AccStore)
-        return false;
-      AccStore = Store;
-    }
-  }
-  if (!AccStore)
-    return false;
-
-  mlir::Value AccSlot = AccStore.getAddr();
-  if (AccSlot == IVSlot)
-    return false;
-  auto AccSlotOp = AccSlot.getDefiningOp<cir::AllocaOp>();
-  if (!AccSlotOp || ForOp->isAncestor(AccSlotOp))
-    return false;
-
-  auto RedOp = AccStore.getValue().getDefiningOp<cir::BinOp>();
-  if (!RedOp || !isCIRFloatType(RedOp.getType()))
-    return false;
-
-  cir::BinOpKind RedKind = RedOp.getKind();
-  if (RedKind != cir::BinOpKind::Add && RedKind != cir::BinOpKind::Mul &&
-      RedKind != cir::BinOpKind::Sub)
-    return false;
-
-  cir::LoadOp AccLoad = nullptr;
-  for (mlir::Operation &Op : BodyBlock.without_terminator()) {
-    if (auto Load = mlir::dyn_cast<cir::LoadOp>(&Op)) {
-      if (Load.getAddr() == AccSlot) {
-        if (AccLoad)
-          return false;
-        AccLoad = Load;
-      }
-    }
-  }
-  if (!AccLoad || AccLoad.getIsVolatile() || !AccLoad->hasOneUse())
-    return false;
-
-  bool AccIsLhs = (RedOp.getLhs() == AccLoad.getResult());
-  bool AccIsRhs = (RedOp.getRhs() == AccLoad.getResult());
-  if (!AccIsLhs && !AccIsRhs)
-    return false;
-  if (RedKind == cir::BinOpKind::Sub && !AccIsLhs)
-    return false;
-
-  // Garante que nenhuma outra operação no corpo tenha efeitos colaterais
-  for (mlir::Operation &Op : BodyBlock.without_terminator()) {
-    if (&Op == AccLoad || &Op == AccStore)
-      continue;
-    if (auto Load = mlir::dyn_cast<cir::LoadOp>(&Op)) {
-      if (Load.getIsVolatile())
-        return false;
-      continue;
-    }
-    if (Op.getNumRegions() > 0 || !mlir::isPure(&Op))
-      return false;
-  }
-
-  // 4. Materializa K acumuladores independentes antes do laço
-  mlir::Location Loc = ForOp.getLoc();
-  mlir::Type AccTy = RedOp.getType();
-  auto FPTy = mlir::cast<cir::FPTypeInterface>(AccTy);
-  llvm::APFloat IdentityVal =
-      (RedKind == cir::BinOpKind::Mul)
-          ? llvm::APFloat::getOne(FPTy.getFloatSemantics())
-          : llvm::APFloat::getZero(FPTy.getFloatSemantics());
-
-  Rewriter.setInsertionPoint(ForOp);
-  mlir::Value InitConst = createFPConstant(Rewriter, Loc, AccTy, IdentityVal);
-
-  llvm::SmallVector<mlir::Value, 8> AccSlots;
-  for (unsigned Lane = 0; Lane < UnrollFactor; ++Lane) {
-    auto ClonedAlloca = mlir::cast<cir::AllocaOp>(Rewriter.clone(*AccSlotOp));
-    AccSlots.push_back(ClonedAlloca.getResult());
-    mlir::IRMapping InitMap;
-    InitMap.map(AccSlot, ClonedAlloca.getResult());
-    auto InitStore =
-        mlir::cast<cir::StoreOp>(Rewriter.clone(*AccStore, InitMap));
-    InitStore.getValueMutable().assign(InitConst);
-  }
-
-  // 5. Cria laço principal desenrolado: for (; i < bound - (K - 1); i += K)
-  auto MainLoop = mlir::cast<cir::ForOp>(Rewriter.clone(*ForOp));
-  mlir::Block &MainCond = MainLoop.getCond().front();
-  mlir::Block &MainBody = MainLoop.getBody().front();
-  mlir::Block &MainStep = MainLoop.getStep().front();
-
-  auto MainCmp =
-      MainCond.getTerminator()->getOperand(0).getDefiningOp<cir::CmpOp>();
-  Rewriter.setInsertionPoint(MainCmp);
-  auto KMinus1 = cir::ConstantOp::create(
-      Rewriter, Loc, IVTy, cir::IntAttr::get(IVTy, UnrollFactor - 1));
-  mlir::Value SafeBound = cir::BinOp::create(
-      Rewriter, Loc, IVTy, cir::BinOpKind::Sub, MainCmp.getRhs(), KMinus1);
-  MainCmp.getRhsMutable().assign(SafeBound);
-
-  cir::StoreOp MainStepStore = nullptr;
-  for (mlir::Operation &Op : MainStep.without_terminator()) {
-    if (auto Store = mlir::dyn_cast<cir::StoreOp>(&Op))
-      MainStepStore = Store;
-  }
-  Rewriter.setInsertionPoint(MainStepStore);
-  auto StepIVLoad = cir::LoadOp::create(Rewriter, Loc, IVTy, IVSlot);
-  auto KConst = cir::ConstantOp::create(Rewriter, Loc, IVTy,
-                                        cir::IntAttr::get(IVTy, UnrollFactor));
-  mlir::Value NextIV = cir::BinOp::create(
-      Rewriter, Loc, IVTy, cir::BinOpKind::Add, StepIVLoad.getResult(), KConst);
-  MainStepStore.getValueMutable().assign(NextIV);
-
-  // Clona o corpo para lanes 1..K-1 com índices (i + lane) e acumuladores próprios
-  llvm::SmallVector<mlir::Operation *, 16> OrigBodyOps;
-  cir::LoadOp FirstIVLoad = nullptr;
-  cir::LoadOp Lane0AccLoad = nullptr;
-  cir::StoreOp Lane0AccStore = nullptr;
-  for (mlir::Operation &Op : MainBody.without_terminator()) {
-    OrigBodyOps.push_back(&Op);
-    if (auto Load = mlir::dyn_cast<cir::LoadOp>(&Op)) {
-      if (Load.getAddr() == IVSlot && !FirstIVLoad)
-        FirstIVLoad = Load;
-      else if (Load.getAddr() == AccSlot)
-        Lane0AccLoad = Load;
-    } else if (auto Store = mlir::dyn_cast<cir::StoreOp>(&Op)) {
-      if (Store.getAddr() == AccSlot)
-        Lane0AccStore = Store;
-    }
-  }
-
-  Rewriter.setInsertionPoint(MainBody.getTerminator());
-  for (unsigned Lane = 1; Lane < UnrollFactor; ++Lane) {
-    mlir::Value LaneIV = nullptr;
-    if (FirstIVLoad) {
-      auto LaneConst = cir::ConstantOp::create(Rewriter, Loc, IVTy,
-                                               cir::IntAttr::get(IVTy, Lane));
-      LaneIV = cir::BinOp::create(Rewriter, Loc, IVTy, cir::BinOpKind::Add,
-                                  FirstIVLoad.getResult(), LaneConst);
-    }
-
-    mlir::IRMapping LaneMap;
-    LaneMap.map(AccSlot, AccSlots[Lane]);
-    for (mlir::Operation *OrigOp : OrigBodyOps) {
-      if (LaneIV) {
-        if (auto Load = mlir::dyn_cast<cir::LoadOp>(OrigOp)) {
-          if (Load.getAddr() == IVSlot) {
-            LaneMap.map(Load.getResult(), LaneIV);
-            continue;
-          }
-        }
-      }
-      Rewriter.clone(*OrigOp, LaneMap);
-    }
-  }
-
-  // Redireciona lane 0 para AccSlots[0]
-  Lane0AccLoad.getAddrMutable().assign(AccSlots[0]);
-  Lane0AccStore.getAddrMutable().assign(AccSlots[0]);
-
-  // 6. Redução em árvore balanceada após o laço principal + laço residual
-  Rewriter.setInsertionPoint(ForOp);
-  llvm::SmallVector<mlir::Value, 8> LaneVals;
-  for (unsigned Lane = 0; Lane < UnrollFactor; ++Lane) {
-    mlir::IRMapping ReadMap;
-    ReadMap.map(AccSlot, AccSlots[Lane]);
-    auto ClonedLoad =
-        mlir::cast<cir::LoadOp>(Rewriter.clone(*AccLoad, ReadMap));
-    LaneVals.push_back(ClonedLoad.getResult());
-  }
-
-  cir::BinOpKind TreeCombineKind = (RedKind == cir::BinOpKind::Mul)
-                                       ? cir::BinOpKind::Mul
-                                       : cir::BinOpKind::Add;
-  while (LaneVals.size() > 1) {
-    llvm::SmallVector<mlir::Value, 8> NextLevel;
-    for (size_t Idx = 0; Idx + 1 < LaneVals.size(); Idx += 2) {
-      NextLevel.push_back(cir::BinOp::create(Rewriter, Loc, AccTy,
-                                             TreeCombineKind, LaneVals[Idx],
-                                             LaneVals[Idx + 1]));
-    }
-    if (LaneVals.size() % 2 == 1)
-      NextLevel.push_back(LaneVals.back());
-    LaneVals = std::move(NextLevel);
-  }
-
-  auto OrigAccVal = mlir::cast<cir::LoadOp>(Rewriter.clone(*AccLoad));
-  mlir::Value CombinedAcc = cir::BinOp::create(
-      Rewriter, Loc, AccTy, RedKind, OrigAccVal.getResult(), LaneVals[0]);
-  auto FinalAccStore = mlir::cast<cir::StoreOp>(Rewriter.clone(*AccStore));
-  FinalAccStore.getValueMutable().assign(CombinedAcc);
-
-  // Laço residual para os elementos restantes (n % K)
-  Rewriter.clone(*ForOp);
-  Rewriter.eraseOp(ForOp);
-  return true;
-}
-
 /// Base pattern that increments the pass rewrite counter on every match.
 template <typename OpTy>
 struct FastMathPattern : public mlir::OpRewritePattern<OpTy> {
@@ -372,7 +125,7 @@ protected:
 };
 
 //===----------------------------------------------------------------------===//
-// 1. Identidades Algébricas (No-NaNs, No-Inf, No-Signed-Zeros)
+// 1. Algebraic Identities (No-NaNs, No-Inf, No-Signed-Zeros)
 //===----------------------------------------------------------------------===//
 
 struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
@@ -393,6 +146,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
 
     switch (Op.getKind()) {
     case cir::BinOpKind::Add:
+      // x + 0.0 -> x and 0.0 + x -> x
       if (RhsC && isZero(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
         return countSuccess();
@@ -404,17 +158,20 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       break;
 
     case cir::BinOpKind::Sub:
+      // x - 0.0 -> x
       if (RhsC && isZero(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
         return countSuccess();
       }
+      // 0.0 - x -> -x
       if (LhsC && isZero(*LhsC)) {
         Rewriter.replaceOpWithNewOp<cir::UnaryOp>(Op, Ty,
                                                   cir::UnaryOpKind::Minus, Rhs);
         return countSuccess();
       }
+      // x - x -> 0.0
       if (isSameFPValue(Lhs, Rhs)) {
-        auto FPTy = mlir::cast<cir::FPTypeInterface>(Ty);
+        auto FPTy = mlir::cast<cir::FPTypeInterface>(getScalarFloatType(Ty));
         llvm::APFloat Zero = llvm::APFloat::getZero(FPTy.getFloatSemantics());
         Rewriter.replaceOp(Op, createFPConstant(Rewriter, Loc, Ty, Zero));
         return countSuccess();
@@ -422,12 +179,14 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       break;
 
     case cir::BinOpKind::Mul:
+      // x * 0.0 -> 0.0 and 0.0 * x -> 0.0
       if ((RhsC && isZero(*RhsC)) || (LhsC && isZero(*LhsC))) {
-        auto FPTy = mlir::cast<cir::FPTypeInterface>(Ty);
+        auto FPTy = mlir::cast<cir::FPTypeInterface>(getScalarFloatType(Ty));
         llvm::APFloat Zero = llvm::APFloat::getZero(FPTy.getFloatSemantics());
         Rewriter.replaceOp(Op, createFPConstant(Rewriter, Loc, Ty, Zero));
         return countSuccess();
       }
+      // x * 1.0 -> x and 1.0 * x -> x
       if (RhsC && isOne(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
         return countSuccess();
@@ -436,6 +195,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
         Rewriter.replaceOp(Op, Rhs);
         return countSuccess();
       }
+      // x * -1.0 -> -x and -1.0 * x -> -x
       if (RhsC && isMinusOne(*RhsC)) {
         Rewriter.replaceOpWithNewOp<cir::UnaryOp>(Op, Ty,
                                                   cir::UnaryOpKind::Minus, Lhs);
@@ -449,6 +209,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       break;
 
     case cir::BinOpKind::Div:
+      // x / 1.0 -> x
       if (RhsC && isOne(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
         return countSuccess();
@@ -464,7 +225,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// 2. Reassociação e Dobra de Constantes
+// 2. Reassociation and Constant Folding
 //===----------------------------------------------------------------------===//
 
 struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
@@ -482,6 +243,7 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
     mlir::Value Rhs = Op.getRhs();
     mlir::Location Loc = Op.getLoc();
 
+    // (x + C1) + C2 -> x + (C1 + C2) and (x * C1) * C2 -> x * (C1 * C2)
     if (Kind == cir::BinOpKind::Add || Kind == cir::BinOpKind::Mul) {
       if (auto C2 = getFPConstant(Rhs)) {
         if (auto Inner = Lhs.getDefiningOp<cir::BinOp>()) {
@@ -506,6 +268,7 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
       }
     }
 
+    // (x + y) - y -> x and (y + x) - y -> x
     if (Kind == cir::BinOpKind::Sub) {
       if (auto Inner = Lhs.getDefiningOp<cir::BinOp>()) {
         if (Inner.getKind() == cir::BinOpKind::Add) {
@@ -526,7 +289,7 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// 3. Divisão -> Multiplicação pelo Recíproco
+// 3. Division to Reciprocal Multiplication
 //===----------------------------------------------------------------------===//
 
 struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
@@ -547,9 +310,9 @@ struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
     mlir::Value Lhs = Op.getLhs();
     mlir::Value Rhs = Op.getRhs();
     mlir::Location Loc = Op.getLoc();
-    auto FPTy = mlir::cast<cir::FPTypeInterface>(Ty);
+    auto FPTy = mlir::cast<cir::FPTypeInterface>(getScalarFloatType(Ty));
 
-    // Caso A: x / C -> x * (1.0 / C)
+    // Case A: x / C -> x * (1.0 / C)
     if (auto C = getFPConstant(Rhs)) {
       if (C->isZero() || C->isNaN() || C->isInfinity() || isOne(*C))
         return mlir::failure();
@@ -565,7 +328,8 @@ struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
       return countSuccess();
     }
 
-    // Caso B: x / y -> x * (1.0 / y) apenas em loops quando y é invariante
+    // Case B: x / y -> x * (1.0 / y) inside loops when y is loop-invariant
+    // so that LICM can hoist (1.0 / y) out of the loop.
     if (EnableDynamicRecip) {
       if (auto LhsC = getFPConstant(Lhs); LhsC && isOne(*LhsC))
         return mlir::failure();
@@ -592,7 +356,7 @@ struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// 4. Eliminação de Checagens de NaN / Inf (Finite Math Only)
+// 4. NaN / Inf Check Elimination (Finite Math Only)
 //===----------------------------------------------------------------------===//
 
 struct EliminateSelfCmpNaN : public FastMathPattern<cir::CmpOp> {
@@ -604,6 +368,10 @@ struct EliminateSelfCmpNaN : public FastMathPattern<cir::CmpOp> {
     mlir::Value Lhs = Op.getLhs();
     mlir::Value Rhs = Op.getRhs();
     if (!isSameFPValue(Lhs, Rhs) || !isCIRFloatType(Lhs.getType()))
+      return mlir::failure();
+
+    auto BoolTy = mlir::dyn_cast<cir::BoolType>(Op.getType());
+    if (!BoolTy)
       return mlir::failure();
 
     bool Result;
@@ -622,7 +390,6 @@ struct EliminateSelfCmpNaN : public FastMathPattern<cir::CmpOp> {
       return mlir::failure();
     }
 
-    auto BoolTy = mlir::cast<cir::BoolType>(Op.getType());
     auto BoolAttr = cir::BoolAttr::get(Rewriter.getContext(), BoolTy, Result);
     Rewriter.replaceOpWithNewOp<cir::ConstantOp>(Op, BoolTy, BoolAttr);
     return countSuccess();
@@ -666,7 +433,7 @@ struct EliminateMathClassificationCalls : public FastMathPattern<cir::CallOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// 5. Contração para Fused Multiply-Add: (a * b) + c -> cir.llvm.intrinsic "fma"
+// 5. Fused Multiply-Add Contraction: (a * b) + c -> cir.llvm.intrinsic "fma"
 //===----------------------------------------------------------------------===//
 
 struct ContractFMA : public FastMathPattern<cir::BinOp> {
@@ -699,10 +466,13 @@ struct ContractFMA : public FastMathPattern<cir::BinOp> {
       return mlir::failure();
     }
 
+    // Leave (a * b) + 0.0 to be simplified to (a * b) by SimplifyFPBinOp.
     if (auto CConst = getFPConstant(C); CConst && isZero(*CConst))
       return mlir::failure();
 
-    // Evita serializar acumuladores de reduções que não foram desenroladas
+    // Avoid contracting in-memory reduction accumulators (e.g., sum += a[i] *
+    // b[i]) directly so downstream vectorization passes still recognize the
+    // canonical reduction binop.
     if (auto LoadC = C.getDefiningOp<cir::LoadOp>()) {
       for (mlir::Operation *User : Op->getUsers()) {
         if (auto Store = mlir::dyn_cast<cir::StoreOp>(User)) {
@@ -719,7 +489,7 @@ struct ContractFMA : public FastMathPattern<cir::BinOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Definição do Passe
+// Pass Definition
 //===----------------------------------------------------------------------===//
 
 struct FastMathPass
@@ -734,28 +504,15 @@ struct FastMathPass
 
   llvm::StringRef getArgument() const final { return "smr-fast-math"; }
   llvm::StringRef getDescription() const final {
-    return "Apply fast-math algebraic, reduction-splitting and FMA "
-           "optimizations on CIR";
+    return "Apply fast-math algebraic, reciprocal, and FMA optimizations on "
+           "CIR";
   }
 
   void runOnOperation() override {
     mlir::MLIRContext *Ctx = &getContext();
+    mlir::RewritePatternSet Patterns(Ctx);
     unsigned Rewrites = 0;
 
-    // 1. Quebra reduções FP em múltiplos acumuladores independentes (K lanes)
-    if (UnrollReductions && UnrollFactor > 1) {
-      mlir::IRRewriter Rewriter(Ctx);
-      llvm::SmallVector<cir::ForOp, 8> CandidateLoops;
-      getOperation().walk<mlir::WalkOrder::PostOrder>(
-          [&](cir::ForOp ForOp) { CandidateLoops.push_back(ForOp); });
-      for (cir::ForOp ForOp : CandidateLoops) {
-        if (splitFPReductionLoop(ForOp, Rewriter, UnrollFactor))
-          ++Rewrites;
-      }
-    }
-
-    // 2. Simplificações algébricas, recíprocos e contração para FMA
-    mlir::RewritePatternSet Patterns(Ctx);
     Patterns.add<SimplifyFPBinOp, ReassociateAndFoldFP, EliminateSelfCmpNaN,
                  EliminateMathClassificationCalls>(Ctx, Rewrites);
     Patterns.add<DivToReciprocalMul>(Ctx, Rewrites, EnableRecip);
@@ -782,14 +539,6 @@ struct FastMathPass
       *this, "recip",
       llvm::cl::desc("Rewrite x / y into x * (1.0 / y) in loops"),
       llvm::cl::init(true)};
-  Option<bool> UnrollReductions{
-      *this, "unroll-reductions",
-      llvm::cl::desc("Split FP loop reductions across parallel accumulators"),
-      llvm::cl::init(true)};
-  Option<unsigned> UnrollFactor{
-      *this, "unroll-factor",
-      llvm::cl::desc("Number of parallel accumulators for FP reductions"),
-      llvm::cl::init(8)};
 };
 
 } // namespace
