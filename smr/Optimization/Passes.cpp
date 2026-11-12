@@ -14,6 +14,8 @@ void registerCSEPass();
 void registerConstantFoldingPass(); 
 void registerConstantPropagationPass();
 void registerMem2RegPass();
+void registerFastMathPass();
+void registerVectorizePass();
 
 void registerSmrPasses() {
   registerUnrollPass();
@@ -27,6 +29,8 @@ void registerSmrPasses() {
   registerConstantFoldingPass();
   registerConstantPropagationPass();
   registerMem2RegPass();
+  registerFastMathPass();
+  registerVectorizePass();
 }
 
 } // namespace optimization

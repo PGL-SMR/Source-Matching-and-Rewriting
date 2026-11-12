@@ -90,7 +90,12 @@ int Manager::run(mlir::ModuleOp Module,
     case MEM2REG:
       PM.addPass(createMem2RegPass(NewCounter(OptName)));
       break;
+    case FAST_MATH:
+      PM.addPass(createFastMathPass(NewCounter(OptName)));
+      break;
     case VECTORIZE:
+      PM.addPass(createVectorizePass(NewCounter(OptName)));
+      break;
     case UNKNOWN:
       warn(Msg::OPTIMIZATION_NOT_IMPLEMENTED, OptName);
       break;

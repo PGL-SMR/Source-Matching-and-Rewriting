@@ -22,7 +22,8 @@ enum Opt {
   CSE,
   CONSTANT_FOLD,
   CONSTANT_PROPAGATION,
-  MEM2REG
+  MEM2REG,
+  FAST_MATH
 };
 
 /// Metadata structure for an optimization pass.
@@ -33,7 +34,7 @@ struct OptimizationInfo {
 };
 
 /// Table of valid optimization passes and their descriptions.
-const std::array<OptimizationInfo, 11> Optimizations = {{
+const std::array<OptimizationInfo, 12> Optimizations = {{
     {UNROLL, "unroll", "Loop unrolling optimization"},
     {TILING, "tiling", "Loop tiling optimization"},
     {VECTORIZE, "vectorize", "Vectorization optimization"},
@@ -44,7 +45,8 @@ const std::array<OptimizationInfo, 11> Optimizations = {{
     {CSE, "cse", "Common subexpression elimination"},
     {CONSTANT_FOLD, "const_fold", "Constant folding optimization"},
     {CONSTANT_PROPAGATION, "const_prop", "Constant propagation optimization"},
-    {MEM2REG, "mem2reg", "Promote memory allocations to SSA registers"}
+    {MEM2REG, "mem2reg", "Promote memory allocations to SSA registers"},
+    {FAST_MATH, "fast_math", "Fast math optimizations"}
 }};
 
 /// Structure storing the optimization pass code and its argument list.

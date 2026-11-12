@@ -10,7 +10,6 @@
 // LOG-NEXT: Applying optimization: dce
 // LOG-NEXT: Applying optimization: canonicalize
 // LOG-NEXT: Applying optimization: vectorize
-// LOG-NEXT: [WARN] Optimization 'vectorize' is not implemented, skipping it.
 // LOG:      Applying rewrite 0...
 // LOG:      Applying optimization: dce
 //
