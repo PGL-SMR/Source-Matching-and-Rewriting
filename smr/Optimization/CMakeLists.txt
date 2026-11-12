@@ -13,6 +13,7 @@ add_library(Optimization STATIC
 		Transforms/ConstFold.cpp
 		Transforms/ConstProp.cpp
 		Transforms/Mem2Reg.cpp
+		Transforms/FastMath.cpp
 )
 
 target_link_libraries(Optimization
