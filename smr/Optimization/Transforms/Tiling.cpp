@@ -15,7 +15,7 @@ cir::AllocaOp createSlot(mlir::IRRewriter &Rewriter, cir::ForOp Loop,
   cir::FuncOp Func = Loop->getParentOfType<cir::FuncOp>();
   Rewriter.setInsertionPointToStart(&Func.getBody().front());
   return cir::AllocaOp::create(Rewriter, Loop.getLoc(),
-                               cir::PointerType::get(Type), Type, Name,
+                               cir::PointerType::get(Type), Name,
                                Rewriter.getI64IntegerAttr(8));
 }
 
@@ -78,9 +78,8 @@ mlir::Value computeTileEnd(mlir::OpBuilder &Builder, mlir::Location Loc,
     return cir::CastOp::create(Builder, Loc, UnsignedType,
                                cir::CastKind::integral, Value);
   };
-  mlir::Value Distance =
-      cir::BinOp::create(Builder, Loc, UnsignedType, cir::BinOpKind::Sub,
-                         AsUnsigned(Bound), AsUnsigned(Start));
+  mlir::Value Distance = cir::SubOp::create(
+      Builder, Loc, UnsignedType, AsUnsigned(Bound), AsUnsigned(Start));
   mlir::Value SpanValue = cir::ConstantOp::create(
       Builder, Loc, cir::IntAttr::get(UnsignedType, Span));
   mlir::Value More = cir::CmpOp::create(
@@ -88,8 +87,7 @@ mlir::Value computeTileEnd(mlir::OpBuilder &Builder, mlir::Location Loc,
       Less ? cir::CmpOpKind::gt : cir::CmpOpKind::ge, Distance, SpanValue);
   mlir::Value Last = cir::ConstantOp::create(
       Builder, Loc, cir::IntAttr::get(IVType, Less ? Span : Span - 1));
-  mlir::Value Next = cir::BinOp::create(Builder, Loc, IVType,
-                                        cir::BinOpKind::Add, Start, Last);
+  mlir::Value Next = cir::AddOp::create(Builder, Loc, IVType, Start, Last);
   return cir::SelectOp::create(Builder, Loc, More, Next, Bound);
 }
 
@@ -238,7 +236,8 @@ bool isSliceInvariant(mlir::Value Value, mlir::Operation *Scope) {
     auto Slot = Load.getAddr().getDefiningOp<cir::AllocaOp>();
     return Slot && !isStoredIn(Scope, Slot.getResult());
   }
-  if (!mlir::isa<cir::CastOp, cir::BinOp, cir::UnaryOp>(Def))
+  if (!mlir::isa<cir::CastOp, cir::BinaryOpInterface, cir::UnaryOpInterface>(
+          Def))
     return false;
   return llvm::all_of(Def->getOperands(), [&](mlir::Value Operand) {
     return isSliceInvariant(Operand, Scope);
@@ -274,9 +273,10 @@ std::optional<CanonicalLoop> matchInner(CanonicalLoop Outer,
       Allowed = Store.getAddr() == Inner->IV.getResult() ||
                 (Local && Local->contains(Store.getAddr().getDefiningOp()));
     else
-      Allowed = mlir::isa<cir::ConstantOp, cir::CastOp, cir::LoadOp>(Op) ||
-                (Local && mlir::isa<cir::BinOp, cir::UnaryOp, cir::PtrStrideOp,
-                                    cir::CmpOp, cir::SelectOp>(Op));
+      Allowed =
+          mlir::isa<cir::ConstantOp, cir::CastOp, cir::LoadOp>(Op) ||
+          (Local && mlir::isa<cir::BinaryOpInterface, cir::UnaryOpInterface,
+                              cir::PtrStrideOp, cir::CmpOp, cir::SelectOp>(Op));
     if (!Allowed)
       return std::nullopt;
   }

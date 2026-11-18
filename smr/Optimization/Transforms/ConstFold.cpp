@@ -44,8 +44,9 @@ struct ConstantFoldingPass
           continue;
         }
 
-        // 2. Custom fold for cir::BinOp when both operands are constants
-        if (auto binOp = llvm::dyn_cast<cir::BinOp>(op)) {
+        // 2. Custom fold for add, sub and mul when both operands are constants
+        if (llvm::isa<cir::AddOp, cir::SubOp, cir::MulOp>(op)) {
+          auto binOp = llvm::cast<cir::BinaryOpInterface>(op);
           auto lhsConst = binOp.getLhs().getDefiningOp<cir::ConstantOp>();
           auto rhsConst = binOp.getRhs().getDefiningOp<cir::ConstantOp>();
           if (!lhsConst || !rhsConst)
@@ -59,34 +60,22 @@ struct ConstantFoldingPass
           int64_t lhsVal = lhsInt.getValue().getSExtValue();
           int64_t rhsVal = rhsInt.getValue().getSExtValue();
           int64_t resVal = 0;
-          bool isValidKind = true;
 
-          switch (binOp.getKind()) {
-          case cir::BinOpKind::Add:
+          if (llvm::isa<cir::AddOp>(op))
             resVal = lhsVal + rhsVal;
-            break;
-          case cir::BinOpKind::Sub:
+          else if (llvm::isa<cir::SubOp>(op))
             resVal = lhsVal - rhsVal;
-            break;
-          case cir::BinOpKind::Mul:
+          else
             resVal = lhsVal * rhsVal;
-            break;
-          default:
-            isValidKind = false;
-            break;
-          }
 
-          if (!isValidKind)
-            continue;
+          mlir::IRRewriter rewriter(op->getContext());
+          rewriter.setInsertionPoint(op);
 
-          mlir::IRRewriter rewriter(binOp.getContext());
-          rewriter.setInsertionPoint(binOp);
-
-          auto resAttr = cir::IntAttr::get(binOp.getType(), resVal);
+          auto resAttr = cir::IntAttr::get(op->getResult(0).getType(), resVal);
           auto newConst =
-              cir::ConstantOp::create(rewriter, binOp.getLoc(), resAttr);
+              cir::ConstantOp::create(rewriter, op->getLoc(), resAttr);
 
-          rewriter.replaceOp(binOp, newConst.getOperation());
+          rewriter.replaceOp(op, newConst.getOperation());
           changedThisIteration = true;
           if (Changed)
             ++*Changed;

@@ -13,10 +13,10 @@ module attributes {cir.lang = #cir.lang<c>, dlti.dl_spec = #dlti.dl_spec<!llvm.p
   // CHECK:         } body {
   // CHECK:         } step {
   cir.func dso_local @sum(%arg0: !s32i, %arg1: !cir.ptr<!s32i>) -> !s32i {
-    %0 = cir.alloca !s32i, !cir.ptr<!s32i>, ["n", init] {alignment = 4 : i64}
-    %1 = cir.alloca !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>, ["a", init] {alignment = 8 : i64}
-    %2 = cir.alloca !s32i, !cir.ptr<!s32i>, ["s", init] {alignment = 4 : i64}
-    %3 = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init] {alignment = 4 : i64}
+    %0 = cir.alloca "n" align(4) init : !cir.ptr<!s32i>
+    %1 = cir.alloca "a" align(8) init : !cir.ptr<!cir.ptr<!s32i>>
+    %2 = cir.alloca "s" align(4) init : !cir.ptr<!s32i>
+    %3 = cir.alloca "i" align(4) init : !cir.ptr<!s32i>
     cir.store %arg0, %0 : !s32i, !cir.ptr<!s32i>
     cir.store %arg1, %1 : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
     %4 = cir.const #cir.int<0> : !s32i
@@ -25,7 +25,7 @@ module attributes {cir.lang = #cir.lang<c>, dlti.dl_spec = #dlti.dl_spec<!llvm.p
     cir.for : cond {
       %6 = cir.load %3 : !cir.ptr<!s32i>, !s32i
       %7 = cir.load %0 : !cir.ptr<!s32i>, !s32i
-      %8 = cir.cmp(lt, %6, %7) : !s32i, !cir.bool
+      %8 = cir.cmp lt %6, %7 : !s32i
       cir.condition(%8)
     } body {
       %6 = cir.load %1 : !cir.ptr<!cir.ptr<!s32i>>, !cir.ptr<!s32i>
@@ -33,12 +33,12 @@ module attributes {cir.lang = #cir.lang<c>, dlti.dl_spec = #dlti.dl_spec<!llvm.p
       %8 = cir.ptr_stride %6, %7 : (!cir.ptr<!s32i>, !s32i) -> !cir.ptr<!s32i>
       %9 = cir.load %8 : !cir.ptr<!s32i>, !s32i
       %10 = cir.load %2 : !cir.ptr<!s32i>, !s32i
-      %11 = cir.binop(add, %10, %9) nsw : !s32i
+      %11 = cir.add nsw %10, %9 : !s32i
       cir.store %11, %2 : !s32i, !cir.ptr<!s32i>
       cir.yield
     } step {
       %6 = cir.load %3 : !cir.ptr<!s32i>, !s32i
-      %7 = cir.unary(inc, %6) nsw : !s32i, !s32i
+      %7 = cir.inc nsw %6 : !s32i
       cir.store %7, %3 : !s32i, !cir.ptr<!s32i>
       cir.yield
     }

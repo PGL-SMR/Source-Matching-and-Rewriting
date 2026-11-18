@@ -370,7 +370,8 @@ int writeOutputs(Data &Data, llvm::StringRef &Output,
     info(Msg::OUTPUT_DEST, "stdout");
     for (int Id : OptInputs) {
       llvm::outs() << "Optimized \"" + Data.getInputFilepath(Id) + "\":\n";
-      Data.getInput(Id).dump();
+      Data.getInput(Id).print(llvm::outs());
+      llvm::outs() << "\n";
     }
   }
   // Single output file: dump all rewritten inputs to the same file.

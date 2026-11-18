@@ -10,20 +10,20 @@ module {
   //
   // CHECK-LABEL: cir.func @propagate_const(
   // CHECK-SAME:    %[[ARG0:.*]]: !s32i) -> !s32i
-  // CHECK:         [[ADDR:%.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x"]
+  // CHECK:         [[ADDR:%.*]] = cir.alloca "x" align({{[0-9]+}}) : !cir.ptr<!s32i>
   // CHECK:         [[C42:%.*]] = cir.const #cir.int<42> : !s32i
   // CHECK:         cir.store [[C42]], [[ADDR]]
   // CHECK-NEXT:    [[PROP_C42:%.*]] = cir.const #cir.int<42> : !s32i
-  // CHECK-NEXT:    [[RES:%.*]] = cir.binop(add, %[[ARG0]], [[PROP_C42]]) : !s32i
+  // CHECK-NEXT:    [[RES:%.*]] = cir.add %[[ARG0]], [[PROP_C42]] : !s32i
   // CHECK-NOT:     cir.load
   // CHECK:         cir.return [[RES]] : !s32i
   cir.func @propagate_const(%arg0: !s32i) -> !s32i {
-    %x = cir.alloca !s32i, !cir.ptr<!s32i>, ["x"]
+    %x = cir.alloca "x" align(4) : !cir.ptr<!s32i>
     %c42 = cir.const #cir.int<42> : !s32i
     cir.store %c42, %x : !s32i, !cir.ptr<!s32i>
 
     %val = cir.load %x : !cir.ptr<!s32i>, !s32i
-    %res = cir.binop(add, %arg0, %val) : !s32i
+    %res = cir.add %arg0, %val : !s32i
     cir.return %res : !s32i
   }
 
@@ -31,12 +31,12 @@ module {
   //
   // CHECK-LABEL: cir.func @invalidate_on_variable_store(
   // CHECK-SAME:    %[[ARG0:.*]]: !s32i) -> !s32i
-  // CHECK:         [[ADDR:%.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x"]
+  // CHECK:         [[ADDR:%.*]] = cir.alloca "x" align({{[0-9]+}}) : !cir.ptr<!s32i>
   // CHECK:         cir.store %[[ARG0]], [[ADDR]] :
   // CHECK:         [[LOADED:%.*]] = cir.load [[ADDR]] :
   // CHECK:         cir.return [[LOADED]] : !s32i
   cir.func @invalidate_on_variable_store(%arg0: !s32i) -> !s32i {
-    %x = cir.alloca !s32i, !cir.ptr<!s32i>, ["x"]
+    %x = cir.alloca "x" align(4) : !cir.ptr<!s32i>
     %c10 = cir.const #cir.int<10> : !s32i
     cir.store %c10, %x : !s32i, !cir.ptr<!s32i>
 

@@ -7,7 +7,7 @@
 
 module {
   cir.func private @add(%arg0: !s32i, %arg1: !s32i) -> !s32i {
-    %0 = cir.binop(add, %arg0, %arg1) : !s32i
+    %0 = cir.add %arg0, %arg1 : !s32i
     cir.return %0 : !s32i
   }
 
@@ -16,7 +16,7 @@ module {
   // CHECK-LABEL: cir.func @simple_inline(
   // CHECK-SAME:    %[[ARG0:.*]]: !s32i, %[[ARG1:.*]]: !s32i) -> !s32i
   // CHECK-NOT:     cir.call
-  // CHECK:         %[[RES:.*]] = cir.binop(add, %[[ARG0]], %[[ARG1]]) : !s32i
+  // CHECK:         %[[RES:.*]] = cir.add %[[ARG0]], %[[ARG1]] : !s32i
   // CHECK:         cir.return %[[RES]] : !s32i
   cir.func @simple_inline(%arg0: !s32i, %arg1: !s32i) -> !s32i {
     %0 = cir.call @add(%arg0, %arg1) : (!s32i, !s32i) -> !s32i
@@ -25,14 +25,14 @@ module {
 
   cir.func private @leaf(%arg0: !s32i) -> !s32i {
     %c1 = cir.const #cir.int<1> : !s32i
-    %0 = cir.binop(add, %arg0, %c1) : !s32i
+    %0 = cir.add %arg0, %c1 : !s32i
     cir.return %0 : !s32i
   }
 
   cir.func private @mid(%arg0: !s32i) -> !s32i {
     %0 = cir.call @leaf(%arg0) : (!s32i) -> !s32i
     %c2 = cir.const #cir.int<2> : !s32i
-    %1 = cir.binop(add, %0, %c2) : !s32i
+    %1 = cir.add %0, %c2 : !s32i
     cir.return %1 : !s32i
   }
 
@@ -43,9 +43,9 @@ module {
   // CHECK-SAME:    %[[ARG0:.*]]: !s32i) -> !s32i
   // CHECK-NOT:     cir.call
   // CHECK:         %[[C1:.*]] = cir.const #cir.int<1> : !s32i
-  // CHECK:         %[[ADD1:.*]] = cir.binop(add, %[[ARG0]], %[[C1]]) : !s32i
+  // CHECK:         %[[ADD1:.*]] = cir.add %[[ARG0]], %[[C1]] : !s32i
   // CHECK:         %[[C2:.*]] = cir.const #cir.int<2> : !s32i
-  // CHECK:         %[[ADD2:.*]] = cir.binop(add, %[[ADD1]], %[[C2]]) : !s32i
+  // CHECK:         %[[ADD2:.*]] = cir.add %[[ADD1]], %[[C2]] : !s32i
   // CHECK:         cir.return %[[ADD2]] : !s32i
   cir.func @nested_inline(%arg0: !s32i) -> !s32i {
     %0 = cir.call @mid(%arg0) : (!s32i) -> !s32i

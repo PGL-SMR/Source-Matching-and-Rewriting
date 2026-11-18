@@ -45,18 +45,18 @@ module {
   // CHECK:         } body {
   // CHECK:         } step {
   cir.func @loop(%arg0: !s32i) {
-    %0 = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init] {alignment = 4 : i64}
+    %0 = cir.alloca "i" align(4) init : !cir.ptr<!s32i>
     %1 = cir.const #cir.int<0> : !s32i
     cir.store %1, %0 : !s32i, !cir.ptr<!s32i>
     cir.for : cond {
       %2 = cir.load %0 : !cir.ptr<!s32i>, !s32i
-      %3 = cir.cmp(lt, %2, %arg0) : !s32i, !cir.bool
+      %3 = cir.cmp lt %2, %arg0 : !s32i
       cir.condition(%3)
     } body {
       cir.yield
     } step {
       %2 = cir.load %0 : !cir.ptr<!s32i>, !s32i
-      %3 = cir.unary(inc, %2) nsw : !s32i, !s32i
+      %3 = cir.inc nsw %2 : !s32i
       cir.store %3, %0 : !s32i, !cir.ptr<!s32i>
       cir.yield
     }

@@ -7,39 +7,39 @@
 // RUN: clang -fclangir -emit-cir %s -o %t.cir
 //
 // RUN: smr-opt --smr-unroll=factor=4 %t.cir -o %t.unroll4.cir
-// RUN: cir-translate --cir-to-llvmir %t.unroll4.cir -o %t.unroll4.ll
+// RUN: cir-translate --cir-to-llvmir %t.unroll4.cir | sed '/^target datalayout/d' > %t.unroll4.ll
 // RUN: clang %t.unroll4.ll -o %t.unroll4
 // RUN: %t.unroll4 > %t.unroll4.out
 // RUN: diff %t.ref.out %t.unroll4.out
 //
 // RUN: smr-opt --smr-unroll=factor=3 %t.cir -o %t.unroll3.cir
-// RUN: cir-translate --cir-to-llvmir %t.unroll3.cir -o %t.unroll3.ll
+// RUN: cir-translate --cir-to-llvmir %t.unroll3.cir | sed '/^target datalayout/d' > %t.unroll3.ll
 // RUN: clang %t.unroll3.ll -o %t.unroll3
 // RUN: %t.unroll3 > %t.unroll3.out
 // RUN: diff %t.ref.out %t.unroll3.out
 //
 // RUN: smr-opt --smr-tiling=size=4 %t.cir -o %t.tiling4.cir
 // RUN: FileCheck %s --input-file=%t.tiling4.cir --check-prefix=TILED
-// RUN: cir-translate --cir-to-llvmir %t.tiling4.cir -o %t.tiling4.ll
+// RUN: cir-translate --cir-to-llvmir %t.tiling4.cir | sed '/^target datalayout/d' > %t.tiling4.ll
 // RUN: clang %t.tiling4.ll -o %t.tiling4
 // RUN: %t.tiling4 > %t.tiling4.out
 // RUN: diff %t.ref.out %t.tiling4.out
 //
 // RUN: smr-opt --smr-tiling=size=7 %t.cir -o %t.tiling7.cir
-// RUN: cir-translate --cir-to-llvmir %t.tiling7.cir -o %t.tiling7.ll
+// RUN: cir-translate --cir-to-llvmir %t.tiling7.cir | sed '/^target datalayout/d' > %t.tiling7.ll
 // RUN: clang %t.tiling7.ll -o %t.tiling7
 // RUN: %t.tiling7 > %t.tiling7.out
 // RUN: diff %t.ref.out %t.tiling7.out
 //
 // Unrolling first leaves the main loop and its epilogue, both get tiled.
 // RUN: smr-opt --smr-unroll=factor=3 --smr-tiling=size=5 %t.cir -o %t.both.cir
-// RUN: cir-translate --cir-to-llvmir %t.both.cir -o %t.both.ll
+// RUN: cir-translate --cir-to-llvmir %t.both.cir | sed '/^target datalayout/d' > %t.both.ll
 // RUN: clang %t.both.ll -o %t.both
 // RUN: %t.both > %t.both.out
 // RUN: diff %t.ref.out %t.both.out
 
-// TILED-DAG: cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.i"]
-// TILED-DAG: cir.alloca !s32i, !cir.ptr<!s32i>, ["tile.start.j"]
+// TILED-DAG: cir.alloca "tile.start.i" align({{[0-9]+}}) : !cir.ptr<!s32i>
+// TILED-DAG: cir.alloca "tile.start.j" align({{[0-9]+}}) : !cir.ptr<!s32i>
 // TILED-DAG: cir.if
 
 #include <stdio.h>

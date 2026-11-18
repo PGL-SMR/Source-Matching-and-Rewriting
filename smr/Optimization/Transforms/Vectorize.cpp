@@ -11,6 +11,16 @@
 namespace optimization {
 namespace {
 
+/// An operation of the same kind as Op that computes Type from Operands.
+mlir::Operation *createLike(mlir::OpBuilder &Builder, mlir::Location Loc,
+                            mlir::Operation *Op, mlir::Type Type,
+                            mlir::ValueRange Operands) {
+  mlir::OperationState State(Loc, Op->getName());
+  State.addOperands(Operands);
+  State.addTypes(Type);
+  return Builder.create(State);
+}
+
 bool isSupportedVectorElemType(mlir::Type Ty) {
   return mlir::isa<cir::SingleType, cir::DoubleType>(Ty);
 }
@@ -138,19 +148,15 @@ std::optional<CanonicalForInfo> analyzeCanonicalFor(cir::ForOp ForOp) {
     return std::nullopt;
 
   bool ValidUnitStep = false;
-  if (auto Inc = StepStore.getValue().getDefiningOp<cir::UnaryOp>()) {
-    if (Inc.getKind() == cir::UnaryOpKind::Inc) {
-      if (auto Load = Inc.getInput().getDefiningOp<cir::LoadOp>())
-        ValidUnitStep = (Load.getAddr() == IVSlot);
-    }
-  } else if (auto Add = StepStore.getValue().getDefiningOp<cir::BinOp>()) {
-    if (Add.getKind() == cir::BinOpKind::Add) {
-      auto Load = Add.getLhs().getDefiningOp<cir::LoadOp>();
-      auto Const = Add.getRhs().getDefiningOp<cir::ConstantOp>();
-      if (Load && Load.getAddr() == IVSlot && Const) {
-        if (auto IntAttr = mlir::dyn_cast<cir::IntAttr>(Const.getValue()))
-          ValidUnitStep = (IntAttr.getValue() == 1);
-      }
+  if (auto Inc = StepStore.getValue().getDefiningOp<cir::IncOp>()) {
+    if (auto Load = Inc.getInput().getDefiningOp<cir::LoadOp>())
+      ValidUnitStep = (Load.getAddr() == IVSlot);
+  } else if (auto Add = StepStore.getValue().getDefiningOp<cir::AddOp>()) {
+    auto Load = Add.getLhs().getDefiningOp<cir::LoadOp>();
+    auto Const = Add.getRhs().getDefiningOp<cir::ConstantOp>();
+    if (Load && Load.getAddr() == IVSlot && Const) {
+      if (auto IntAttr = mlir::dyn_cast<cir::IntAttr>(Const.getValue()))
+        ValidUnitStep = (IntAttr.getValue() == 1);
     }
   }
   if (!ValidUnitStep)
@@ -193,18 +199,17 @@ public:
 
     bool IsReduction = false;
     cir::LoadOp RedAccLoad = nullptr;
-    cir::BinOp RedBinOp = nullptr;
+    cir::BinaryOpInterface RedBinOp = nullptr;
     std::optional<ContiguousAccess> StoreAccess;
 
     if (auto AccAlloca = LoopStore.getAddr().getDefiningOp<cir::AllocaOp>()) {
       if (ForOp->isAncestor(AccAlloca) || AccAlloca.getResult() == Info->IVSlot)
         return false;
 
-      RedBinOp = LoopStore.getValue().getDefiningOp<cir::BinOp>();
-      if (!RedBinOp || (RedBinOp.getKind() != cir::BinOpKind::Add &&
-                        RedBinOp.getKind() != cir::BinOpKind::Mul &&
-                        RedBinOp.getKind() != cir::BinOpKind::Sub))
+      mlir::Operation *RedDef = LoopStore.getValue().getDefiningOp();
+      if (!mlir::isa_and_present<cir::FAddOp, cir::FMulOp, cir::FSubOp>(RedDef))
         return false;
+      RedBinOp = mlir::cast<cir::BinaryOpInterface>(RedDef);
 
       for (mlir::Operation &Op : BodyBlock.without_terminator()) {
         if (auto Load = mlir::dyn_cast<cir::LoadOp>(&Op)) {
@@ -223,7 +228,7 @@ public:
       bool AccIsRhs = (RedBinOp.getRhs() == RedAccLoad.getResult());
       if (!AccIsLhs && !AccIsRhs)
         return false;
-      if (RedBinOp.getKind() == cir::BinOpKind::Sub && !AccIsLhs)
+      if (mlir::isa<cir::FSubOp>(RedBinOp.getOperation()) && !AccIsLhs)
         return false;
 
       IsReduction = true;
@@ -273,13 +278,8 @@ public:
         return false;
       }
 
-      if (auto Bin = mlir::dyn_cast<cir::BinOp>(&Op)) {
-        if (Bin.getType() != ElemTy)
-          return false;
-        continue;
-      }
-      if (auto Un = mlir::dyn_cast<cir::UnaryOp>(&Op)) {
-        if (Un.getType() != ElemTy)
+      if (mlir::isa<cir::BinaryOpInterface, cir::UnaryOpInterface>(&Op)) {
+        if (Op.getResult(0).getType() != ElemTy)
           return false;
         continue;
       }
@@ -297,7 +297,7 @@ public:
     }
 
     mlir::Location Loc = ForOp.getLoc();
-    auto VecTy = cir::VectorType::get(ElemTy, VF);
+    auto VecTy = cir::VectorType::getFixed(ElemTy, VF);
     auto VecPtrTy = cir::PointerType::get(VecTy);
     auto ElemPtrTy = cir::PointerType::get(ElemTy);
     unsigned ScalarAlign = getScalarByteAlignment(ElemTy);
@@ -315,7 +315,7 @@ public:
     if (IsReduction) {
       auto FPTy = mlir::cast<cir::FPTypeInterface>(ElemTy);
       llvm::APFloat IdVal =
-          (RedBinOp.getKind() == cir::BinOpKind::Mul)
+          mlir::isa<cir::FMulOp>(RedBinOp.getOperation())
               ? llvm::APFloat::getOne(FPTy.getFloatSemantics())
               : llvm::APFloat::getZero(FPTy.getFloatSemantics());
       auto IdScalar = cir::ConstantOp::create(
@@ -324,9 +324,9 @@ public:
           cir::VecSplatOp::create(Builder, Loc, VecTy, IdScalar.getResult());
 
       for (unsigned Lane = 0; Lane < IC; ++Lane) {
-        auto Slot = cir::AllocaOp::create(
-            Builder, Loc, VecPtrTy, VecTy, "vec.acc",
-            Builder.getI64IntegerAttr(VF * ScalarAlign));
+        auto Slot =
+            cir::AllocaOp::create(Builder, Loc, VecPtrTy, "vec.acc",
+                                  Builder.getI64IntegerAttr(VF * ScalarAlign));
         auto InitSt = cir::StoreOp::create(Builder, Loc, IdVec.getResult(),
                                            Slot.getResult());
         InitSt->setAttr("alignment",
@@ -347,9 +347,8 @@ public:
     auto StepMinus1 = cir::ConstantOp::create(
         Builder, Loc, Info->IVType,
         cir::IntAttr::get(Info->IVType, UnrollStep - 1));
-    mlir::Value VecBound = cir::BinOp::create(
-        Builder, Loc, Info->IVType, cir::BinOpKind::Sub, MainCmp.getRhs(),
-        StepMinus1.getResult());
+    mlir::Value VecBound = cir::SubOp::create(
+        Builder, Loc, Info->IVType, MainCmp.getRhs(), StepMinus1.getResult());
     MainCmp.getRhsMutable().assign(VecBound);
 
     cir::StoreOp MainStepStore = nullptr;
@@ -362,9 +361,8 @@ public:
         cir::LoadOp::create(Builder, Loc, Info->IVType, Info->IVSlot);
     auto StepConst = cir::ConstantOp::create(
         Builder, Loc, Info->IVType, cir::IntAttr::get(Info->IVType, UnrollStep));
-    mlir::Value NextIV = cir::BinOp::create(
-        Builder, Loc, Info->IVType, cir::BinOpKind::Add, StepIV.getResult(),
-        StepConst.getResult());
+    mlir::Value NextIV = cir::AddOp::create(
+        Builder, Loc, Info->IVType, StepIV.getResult(), StepConst.getResult());
     MainStepStore.getValueMutable().assign(NextIV);
 
     // 3. Build vectorized loop body with IC parallel lanes.
@@ -415,9 +413,8 @@ public:
         auto Offset = cir::ConstantOp::create(
             Builder, Loc, Info->IVType,
             cir::IntAttr::get(Info->IVType, Lane * VF));
-        LaneIV = cir::BinOp::create(Builder, Loc, Info->IVType,
-                                    cir::BinOpKind::Add, BaseIV.getResult(),
-                                    Offset.getResult());
+        LaneIV = cir::AddOp::create(Builder, Loc, Info->IVType,
+                                    BaseIV.getResult(), Offset.getResult());
       }
 
       llvm::DenseMap<mlir::Value, mlir::Value> VecMap;
@@ -455,21 +452,23 @@ public:
           return VecLoad.getResult();
         }
 
-        if (auto Bin = V.getDefiningOp<cir::BinOp>()) {
+        if (auto Bin = V.getDefiningOp<cir::BinaryOpInterface>()) {
           mlir::Value VL = Self(Self, Bin.getLhs());
           mlir::Value VR = Self(Self, Bin.getRhs());
-          auto VBin =
-              cir::BinOp::create(Builder, Loc, VecTy, Bin.getKind(), VL, VR);
-          VecMap[V] = VBin.getResult();
-          return VBin.getResult();
+          mlir::Value VBin =
+              createLike(Builder, Loc, Bin.getOperation(), VecTy, {VL, VR})
+                  ->getResult(0);
+          VecMap[V] = VBin;
+          return VBin;
         }
 
-        if (auto Un = V.getDefiningOp<cir::UnaryOp>()) {
+        if (auto Un = V.getDefiningOp<cir::UnaryOpInterface>()) {
           mlir::Value VI = Self(Self, Un.getInput());
-          auto VUn =
-              cir::UnaryOp::create(Builder, Loc, VecTy, Un.getKind(), VI);
-          VecMap[V] = VUn.getResult();
-          return VUn.getResult();
+          mlir::Value VUn =
+              createLike(Builder, Loc, Un.getOperation(), VecTy, {VI})
+                  ->getResult(0);
+          VecMap[V] = VUn;
+          return VUn;
         }
 
         if (auto Intr = V.getDefiningOp<cir::LLVMIntrinsicCallOp>()) {
@@ -493,11 +492,11 @@ public:
         CurAcc->setAttr("alignment",
                         Builder.getI64IntegerAttr(VF * ScalarAlign));
         bool AccIsLhs = (RedBinOp.getLhs() == RedAccLoad.getResult());
-        auto NextAcc = cir::BinOp::create(
-            Builder, Loc, VecTy, RedBinOp.getKind(),
-            AccIsLhs ? CurAcc.getResult() : VecRHS,
-            AccIsLhs ? VecRHS : CurAcc.getResult());
-        auto St = cir::StoreOp::create(Builder, Loc, NextAcc.getResult(),
+        mlir::Operation *NextAcc =
+            createLike(Builder, Loc, RedBinOp.getOperation(), VecTy,
+                       {AccIsLhs ? CurAcc.getResult() : VecRHS,
+                        AccIsLhs ? VecRHS : CurAcc.getResult()});
+        auto St = cir::StoreOp::create(Builder, Loc, NextAcc->getResult(0),
                                        VecAccSlots[Lane]);
         St->setAttr("alignment", Builder.getI64IntegerAttr(VF * ScalarAlign));
       } else {
@@ -527,9 +526,14 @@ public:
     // 4. Horizontal reduction after the vectorized loop (for reduction loops).
     Builder.setInsertionPoint(ForOp);
     if (IsReduction) {
-      cir::BinOpKind CombineKind = (RedBinOp.getKind() == cir::BinOpKind::Mul)
-                                       ? cir::BinOpKind::Mul
-                                       : cir::BinOpKind::Add;
+      // A subtraction accumulates the terms to subtract, so the partial
+      // results are added.
+      bool CombineMul = mlir::isa<cir::FMulOp>(RedBinOp.getOperation());
+      auto Combine = [&](mlir::Value Lhs, mlir::Value Rhs) -> mlir::Value {
+        if (CombineMul)
+          return cir::FMulOp::create(Builder, Loc, mlir::ValueRange{Lhs, Rhs});
+        return cir::FAddOp::create(Builder, Loc, mlir::ValueRange{Lhs, Rhs});
+      };
 
       llvm::SmallVector<mlir::Value, 4> VecAccs;
       for (unsigned Lane = 0; Lane < IC; ++Lane) {
@@ -541,9 +545,7 @@ public:
       while (VecAccs.size() > 1) {
         llvm::SmallVector<mlir::Value, 4> Next;
         for (size_t K = 0; K + 1 < VecAccs.size(); K += 2) {
-          auto Combined = cir::BinOp::create(Builder, Loc, VecTy, CombineKind,
-                                             VecAccs[K], VecAccs[K + 1]);
-          Next.push_back(Combined.getResult());
+          Next.push_back(Combine(VecAccs[K], VecAccs[K + 1]));
         }
         if (VecAccs.size() % 2 == 1)
           Next.push_back(VecAccs.back());
@@ -562,9 +564,7 @@ public:
       while (Lanes.size() > 1) {
         llvm::SmallVector<mlir::Value, 8> Next;
         for (size_t K = 0; K + 1 < Lanes.size(); K += 2) {
-          auto Combined = cir::BinOp::create(Builder, Loc, ElemTy, CombineKind,
-                                             Lanes[K], Lanes[K + 1]);
-          Next.push_back(Combined.getResult());
+          Next.push_back(Combine(Lanes[K], Lanes[K + 1]));
         }
         if (Lanes.size() % 2 == 1)
           Next.push_back(Lanes.back());
@@ -572,11 +572,11 @@ public:
       }
 
       auto OrigAccVal = mlir::cast<cir::LoadOp>(Builder.clone(*RedAccLoad));
-      auto Merged =
-          cir::BinOp::create(Builder, Loc, ElemTy, RedBinOp.getKind(),
-                             OrigAccVal.getResult(), Lanes[0]);
+      mlir::Operation *Merged =
+          createLike(Builder, Loc, RedBinOp.getOperation(), ElemTy,
+                     {OrigAccVal.getResult(), Lanes[0]});
       auto FinalSt = mlir::cast<cir::StoreOp>(Builder.clone(*LoopStore));
-      FinalSt.getValueMutable().assign(Merged.getResult());
+      FinalSt.getValueMutable().assign(Merged->getResult(0));
     }
 
     // 5. Scalar epilogue loop for remaining elements (n % (VF * IC)).

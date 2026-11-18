@@ -12,7 +12,7 @@ $(PROGRAMA): $(LLFILE)
 	$(CC) $(LLFILE) $(CFLAGS) $(LIBS) -o $(PROGRAMA)
 
 $(LLFILE): $(MLIRFILE)
-	cir-translate --cir-to-llvmir $(MLIRFILE) -o $(LLFILE)
+	cir-translate --cir-to-llvmir $(MLIRFILE) | sed '/^target datalayout/d' > $(LLFILE)
 
 $(MLIRFILE): $(CFILE) $(PATFILE)
 	smr $(CFILE) $(PATFILE) -o $(MLIRFILE)

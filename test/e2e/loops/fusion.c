@@ -5,7 +5,7 @@
 // RUN: %t.ref > %t.ref.out
 // RUN: clang -fclangir -emit-cir %s -o %t.cir
 // RUN: smr-opt --smr-fusion %t.cir -o %t.fusion.cir
-// RUN: cir-translate --cir-to-llvmir %t.fusion.cir -o %t.fusion.ll
+// RUN: cir-translate --cir-to-llvmir %t.fusion.cir | sed '/^target datalayout/d' > %t.fusion.ll
 // RUN: clang %t.fusion.ll -o %t.fusion
 // RUN: %t.fusion > %t.fusion.out
 // RUN: diff %t.ref.out %t.fusion.out

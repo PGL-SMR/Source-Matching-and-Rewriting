@@ -14,8 +14,8 @@ private:
   std::set<Source> Extensions{Source::C};
 
   /// \brief Frontend compilation command.
-  std::string Command = "clang -x c -S -O0 -g -Xclang -emit-cir -Xclang "
-                        "-disable-O0-optnone -o - "
+  std::string Command = "clang -x c -S -O0 -g -ffp-contract=off -Xclang "
+                        "-emit-cir -Xclang -disable-O0-optnone -o - "
                         "{0} "
                         "| cir-opt --canonicalize --cir-canonicalize "
                         "--mlir-print-debuginfo" // Attempt to reduce

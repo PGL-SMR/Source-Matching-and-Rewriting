@@ -297,7 +297,8 @@ void Data::dumpInputsCode() {
   for (int i = 0; i < Inputs.size(); ++i) {
     llvm::outs() << "\nInput file " << i << " " << InputsFilepaths[i]
                  << ":\n\n";
-    Inputs[i]->dump();
+    Inputs[i]->print(llvm::outs());
+    llvm::outs() << "\n";
   }
   llvm::outs() << "=================================\n";
 }
@@ -307,7 +308,8 @@ void Data::dumpRewritesCode() {
   for (int i = 0; i < Patterns.size(); ++i) {
     llvm::outs() << "\nRewrite " << i << ":\n";
     llvm::outs() << "\n ----- Pattern " << i << " -----\n";
-    Patterns[i]->dump();
+    Patterns[i]->print(llvm::outs());
+    llvm::outs() << "\n";
 
     const auto &Branches = PatternBranches[i];
     for (size_t j = 0; j < Branches.size(); ++j) {
@@ -319,7 +321,8 @@ void Data::dumpRewritesCode() {
       llvm::outs() << ") -----\n";
 
       if (j < CompiledReplacements[i].size() && CompiledReplacements[i][j]) {
-        CompiledReplacements[i][j]->dump();
+        CompiledReplacements[i][j]->print(llvm::outs());
+        llvm::outs() << "\n";
       } else {
         llvm::outs() << Branch.ReplacementSource << "\n";
       }

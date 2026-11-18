@@ -56,6 +56,7 @@ set(MLIR_LIBS_DIR "${MLIR_MAIN_SRC_DIR}/build/lib" CACHE STRING "MLIR libraries 
 set(MLIR_LIBS
     MLIRIR
     MLIRParser
+    MLIRTransforms
     MLIRFuncDialect
     MLIRArithDialect)
 

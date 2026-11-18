@@ -21,10 +21,7 @@ mlir::Region *getLoopBody(mlir::Operation *Loop) {
 /// An integer division traps on a zero divisor, so it cannot run in a place
 /// where the loop might not have run it.
 bool mayTrap(mlir::Operation *Op) {
-  auto Bin = mlir::dyn_cast<cir::BinOp>(Op);
-  return Bin && mlir::isa<cir::IntType>(Bin.getType()) &&
-         (Bin.getKind() == cir::BinOpKind::Div ||
-          Bin.getKind() == cir::BinOpKind::Rem);
+  return mlir::isa<cir::DivOp, cir::RemOp>(Op);
 }
 
 /// Op runs inside the cond or step of a loop, which later passes expect to

@@ -7,10 +7,10 @@
 // LOG: Applying optimization: licm(twice)
 
 // CHECK-LABEL: cir.func {{.*}}@scale(
-// CHECK:         cir.binop(mul
+// CHECK:         cir.mul
 // CHECK:         cir.for
 // CHECK:         } body {
-// CHECK-NOT:       cir.binop(mul
+// CHECK-NOT:       cir.mul
 // CHECK:         } step {
 void scale(int *v, int p, int q, int n) {
   for (int i = 0; i < n; ++i) {

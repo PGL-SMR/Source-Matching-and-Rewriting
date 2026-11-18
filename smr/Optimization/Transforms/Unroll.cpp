@@ -44,8 +44,7 @@ void unroll(CanonicalLoop Loop, unsigned Factor) {
                                    cir::IntAttr::get(IVType, Value));
   };
   auto AddConstant = [&](mlir::Value Value, int64_t Offset) {
-    return cir::BinOp::create(Rewriter, Loc, IVType, cir::BinOpKind::Add, Value,
-                              Constant(Offset));
+    return cir::AddOp::create(Rewriter, Loc, IVType, Value, Constant(Offset));
   };
 
   Rewriter.setInsertionPointAfter(For);

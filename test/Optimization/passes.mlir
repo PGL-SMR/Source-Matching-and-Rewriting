@@ -14,10 +14,10 @@
 
 module {
   // CHECK-LABEL: cir.func @add(
-  // CHECK:         %[[SUM:.*]] = cir.binop(add, %arg0, %arg1) nsw : !s32i
+  // CHECK:         %[[SUM:.*]] = cir.add nsw %arg0, %arg1 : !s32i
   // CHECK:         cir.return %[[SUM]] : !s32i
   cir.func @add(%arg0: !s32i, %arg1: !s32i) -> !s32i {
-    %0 = cir.binop(add, %arg0, %arg1) nsw : !s32i
+    %0 = cir.add nsw %arg0, %arg1 : !s32i
     cir.return %0 : !s32i
   }
 

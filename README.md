@@ -14,9 +14,9 @@ On this page, you can find the following useful information:
 
 ***The commands below work for Ubuntu 22.04 LTS.***
 
-> **Note:** A pre-configured **`Dockerfile`** is available in the `docker` directory of this repository. You can use it to build and run the entire environment with all dependencies and LLVM 20 pre-installed. If you want to perform your own installation without using Docker, follow the instructions below.
+> **Note:** A pre-configured **`DockerfileUpstream`** is available in the `docker` directory of this repository. You can use it to build and run the entire environment with all dependencies and upstream LLVM, with CIR enabled, pre-installed. If you want to perform your own installation without using Docker, follow the instructions below.
 >
-> Once the image is built (`docker build -t smr-dev -f docker/Dockerfile docker`), `scripts/docker-build.sh [TARGET]` builds SMR inside it into `./build`.
+> Once the image is built (`docker build -t smr-dev -f docker/DockerfileUpstream docker`), `scripts/docker-build.sh [TARGET]` builds SMR inside it into `./build`.
 
 ### Install SMR dependencies:
 
@@ -41,10 +41,10 @@ chmod +x llvm.sh
 rm llvm.sh
 ```
 
-### Build ClangIR:
+### Build LLVM with CIR:
 
 ```bash
-git clone --filter=blob:none https://github.com/llvm/clangir.git /opt/llvm-project
+git clone --filter=blob:none https://github.com/llvm/llvm-project.git /opt/llvm-project
 mkdir -p /opt/llvm-project/build
 
 cmake -G Ninja -S /opt/llvm-project/llvm -B /opt/llvm-project/build \
@@ -189,10 +189,10 @@ smr test.c test.opat -o test-opt.mlir
 
 ## Lowering to Binary
 
-To lower the generated CIR's MLIR code to binary using Clang and link against OpenBLAS:
+To lower the generated CIR's MLIR code to binary using Clang and link against OpenBLAS. The `sed` drops the data layout that `cir-translate` writes, which the backend rejects, so Clang uses the one of the target:
 
 ```bash
-cir-translate --cir-to-llvmir test-opt.mlir -o test-opt.ll
+cir-translate --cir-to-llvmir test-opt.mlir | sed '/^target datalayout/d' > test-opt.ll
 clang test-opt.ll -lopenblas -o test-opt
 ./test-opt
 ```

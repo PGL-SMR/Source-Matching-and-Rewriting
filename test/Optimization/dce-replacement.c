@@ -6,10 +6,10 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: cir.func {{.*}}@dot(
-// CHECK:         %[[T:.*]] = cir.alloca !cir.double, !cir.ptr<!cir.double>, ["t", init]
+// CHECK:         %[[T:.*]] = cir.alloca "t" align({{[0-9]+}}) init : !cir.ptr<!cir.double>
 // CHECK-NOT:     cir.for
-// CHECK:         cir.binop(add
-// CHECK:         %[[SUM:.*]] = cir.binop(add
+// CHECK:         cir.fadd
+// CHECK:         %[[SUM:.*]] = cir.fadd
 // CHECK-NEXT:    cir.store align(8) %[[SUM]], %[[T]]
 // CHECK:         cir.return
 

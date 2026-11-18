@@ -1,4 +1,4 @@
-// RUN: clang -fclangir -emit-cir %s -o %t.cir
+// RUN: clang -fclangir -ffp-contract=off -emit-cir %s -o %t.cir
 // RUN: smr-opt --smr-fast-math --smr-licm --smr-vectorize="vf=8 ic=2" %t.cir | FileCheck %s
 
 // CHECK-LABEL: cir.func {{.*}} @dot_product(
@@ -7,10 +7,10 @@ float dot_product(float *a, float *b, int n) {
   // CHECK:         cir.vec.splat
   // CHECK:         cir.for
   // CHECK:         } body {
-  // CHECK:           cir.cast bitcast {{.*}} -> !cir.ptr<!cir.vector<!cir.float x 8>>
-  // CHECK:           cir.load align(4) {{.*}} !cir.vector<!cir.float x 8>
-  // CHECK:           cir.binop(mul, {{.*}}) : !cir.vector<!cir.float x 8>
-  // CHECK:           cir.binop(add, {{.*}}) : !cir.vector<!cir.float x 8>
+  // CHECK:           cir.cast bitcast {{.*}} -> !cir.ptr<!cir.vector<8 x !cir.float>>
+  // CHECK:           cir.load align(4) {{.*}} !cir.vector<8 x !cir.float>
+  // CHECK:           cir.fmul {{.*}} : !cir.vector<8 x !cir.float>
+  // CHECK:           cir.fadd {{.*}} : !cir.vector<8 x !cir.float>
   // CHECK:         } step {
   // CHECK:         cir.vec.extract
   // CHECK:         cir.for
@@ -25,8 +25,8 @@ void saxpy(float *y, float *x, float alpha, int n) {
   // CHECK:         cir.vec.splat
   // CHECK:         cir.for
   // CHECK:         } body {
-  // CHECK:           cir.llvm.intrinsic "fma" {{.*}} : (!cir.vector<!cir.float x 8>, !cir.vector<!cir.float x 8>, !cir.vector<!cir.float x 8>) -> !cir.vector<!cir.float x 8>
-  // CHECK:           cir.store align(4) {{.*}} !cir.vector<!cir.float x 8>
+  // CHECK:           cir.call_llvm_intrinsic "fma" {{.*}} : (!cir.vector<8 x !cir.float>, !cir.vector<8 x !cir.float>, !cir.vector<8 x !cir.float>) -> !cir.vector<8 x !cir.float>
+  // CHECK:           cir.store align(4) {{.*}} !cir.vector<8 x !cir.float>
   // CHECK:         } step {
   for (int i = 0; i < n; ++i)
     y[i] = alpha * x[i] + y[i];

@@ -7,11 +7,11 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // CHECK-LABEL: cir.func {{.*}}@f(
-// CHECK-NOT:     ["dead"
-// CHECK-NOT:     cir.binop(add
-// CHECK-DAG:     ["n", init]
-// CHECK-DAG:     ["unused_param", init]
-// CHECK-DAG:     ["flag", init]
+// CHECK-NOT:     cir.alloca "dead"
+// CHECK-NOT:     cir.add
+// CHECK-DAG:     cir.alloca "n" align({{[0-9]+}}) init
+// CHECK-DAG:     cir.alloca "unused_param" align({{[0-9]+}}) init
+// CHECK-DAG:     cir.alloca "flag" align({{[0-9]+}}) init
 // CHECK:         cir.return
 
 int f(int n, int unused_param) {

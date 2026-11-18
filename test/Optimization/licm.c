@@ -2,7 +2,7 @@
 // without effects, loads of slots the loop does not write, and calls to the
 // functions named in pure=.
 //
-// RUN: clang -fclangir -emit-cir %s -o %t.cir
+// RUN: clang -fclangir -ffp-contract=off -emit-cir %s -o %t.cir
 // RUN: smr-opt --smr-licm=pure=twice %t.cir | FileCheck %s
 
 int twice(int x);
@@ -11,11 +11,11 @@ void use(int *p);
 
 // CHECK-LABEL: cir.func {{.*}} @scalars(
 void scalars(double *a, double x, double y, int n) {
-  // CHECK:         cir.binop(mul
-  // CHECK:         cir.binop(add
+  // CHECK:         cir.fmul
+  // CHECK:         cir.fadd
   // CHECK:         cir.for
   // CHECK:         } body {
-  // CHECK-NOT:       cir.binop
+  // CHECK-NOT:       cir.{{f?(add|sub|mul|div|rem)}}
   // CHECK:         } step {
   for (int i = 0; i < n; ++i)
     a[i] = x * y + 3.0;
@@ -27,7 +27,7 @@ int written(int *a, int n) {
   // CHECK:         cir.for
   // CHECK:         } body {
   // CHECK:           cir.load
-  // CHECK:           cir.binop(add
+  // CHECK:           cir.add
   // CHECK:           cir.store
   for (int i = 0; i < n; ++i)
     sum += a[i];
@@ -43,10 +43,10 @@ void nested(double *m, double f, int n) {
   // CHECK:         cir.load
   // CHECK:         cir.for
   // CHECK:         } body {
-  // CHECK:           cir.binop(mul
+  // CHECK:           cir.mul
   // CHECK:           cir.for
   // CHECK:           } body {
-  // CHECK-NOT:         cir.binop(mul, {{.*}} nsw
+  // CHECK-NOT:         cir.mul nsw
   for (int i = 0; i < n; ++i)
     for (int j = 0; j < n; ++j)
       m[i * n + j] *= f;
@@ -76,7 +76,7 @@ void pointer(double *a, double *c, int n) {
   // CHECK:           cir.ptr_stride
   // CHECK:           cir.load
   // CHECK:           cir.load
-  // CHECK:           cir.binop(mul
+  // CHECK:           cir.fmul
   for (int i = 0; i < n; ++i)
     a[i] = a[i] * c[0];
 }
@@ -86,7 +86,7 @@ void pointer(double *a, double *c, int n) {
 void division(int *a, int p, int q, int n) {
   // CHECK:         cir.for
   // CHECK:         } body {
-  // CHECK:           cir.binop(div
+  // CHECK:           cir.div
   for (int i = 0; i < n; ++i)
     a[i] = p / q;
 }
@@ -126,7 +126,7 @@ void variant_call(int *a, int n) {
 // CHECK-LABEL: cir.func {{.*}} @guarded(
 void guarded(int *a, int p, int q, int n) {
   // CHECK:         cir.cast int_to_bool
-  // CHECK:         cir.binop(add
+  // CHECK:         cir.add
   // CHECK:         cir.for
   // CHECK:         } body {
   // CHECK:           cir.if
@@ -142,7 +142,7 @@ void header(int *a, int n) {
   // CHECK:         cir.for : cond {
   // CHECK-NEXT:      cir.load
   // CHECK-NEXT:      cir.load
-  // CHECK-NEXT:      cir.cmp(lt
+  // CHECK-NEXT:      cir.cmp lt
   for (int i = 0; i < n; ++i)
     a[i] = 0;
 }

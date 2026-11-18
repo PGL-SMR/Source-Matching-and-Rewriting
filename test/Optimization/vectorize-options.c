@@ -5,8 +5,8 @@
 // RUN: FileCheck %s --input-file=%t.vf.mlir --check-prefix=VF
 //
 // VF-LABEL: cir.func {{.*}}@dot_product(
-// VF:         cir.binop(mul, {{.*}}) : !cir.vector<!cir.float x 4>
-// VF-NOT:     !cir.vector<!cir.float x 8>
+// VF:         cir.fmul {{.*}} : !cir.vector<4 x !cir.float>
+// VF-NOT:     !cir.vector<8 x !cir.float>
 //
 // Two arrays that may overlap are not vectorized when assume-no-alias is false.
 //

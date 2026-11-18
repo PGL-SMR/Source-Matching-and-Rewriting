@@ -7,19 +7,19 @@
 // RUN: clang -fclangir -emit-cir %s -o %t.cir
 //
 // RUN: smr-opt --smr-licm %t.cir -o %t.licm.cir
-// RUN: cir-translate --cir-to-llvmir %t.licm.cir -o %t.licm.ll
+// RUN: cir-translate --cir-to-llvmir %t.licm.cir | sed '/^target datalayout/d' > %t.licm.ll
 // RUN: clang %t.licm.ll -o %t.licm
 // RUN: %t.licm > %t.licm.out
 // RUN: diff %t.ref.out %t.licm.out
 //
 // RUN: smr-opt --smr-licm=pure=twice %t.cir -o %t.pure.cir
-// RUN: cir-translate --cir-to-llvmir %t.pure.cir -o %t.pure.ll
+// RUN: cir-translate --cir-to-llvmir %t.pure.cir | sed '/^target datalayout/d' > %t.pure.ll
 // RUN: clang %t.pure.ll -o %t.pure
 // RUN: %t.pure > %t.pure.out
 // RUN: diff %t.ref.out %t.pure.out
 //
 // RUN: smr-opt --smr-licm=pure=twice --smr-unroll=factor=3 --smr-tiling=size=5 %t.cir -o %t.all.cir
-// RUN: cir-translate --cir-to-llvmir %t.all.cir -o %t.all.ll
+// RUN: cir-translate --cir-to-llvmir %t.all.cir | sed '/^target datalayout/d' > %t.all.ll
 // RUN: clang %t.all.ll -o %t.all
 // RUN: %t.all > %t.all.out
 // RUN: diff %t.ref.out %t.all.out

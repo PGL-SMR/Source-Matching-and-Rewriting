@@ -83,16 +83,14 @@ std::optional<std::pair<cir::AllocaOp, int64_t>> matchStep(mlir::Block &Step) {
   };
   std::optional<int64_t> StepValue;
   mlir::Operation *Inc = Store.getValue().getDefiningOp();
-  if (auto Unary = mlir::dyn_cast_or_null<cir::UnaryOp>(Inc)) {
-    if (Unary.getKind() == cir::UnaryOpKind::Inc && IsIVLoad(Unary.getInput()))
+  if (auto Increment = mlir::dyn_cast_or_null<cir::IncOp>(Inc)) {
+    if (IsIVLoad(Increment.getInput()))
       StepValue = 1;
-  } else if (auto Bin = mlir::dyn_cast_or_null<cir::BinOp>(Inc)) {
-    if (Bin.getKind() == cir::BinOpKind::Add) {
-      if (IsIVLoad(Bin.getLhs()))
-        StepValue = getConstantInt(Bin.getRhs());
-      else if (IsIVLoad(Bin.getRhs()))
-        StepValue = getConstantInt(Bin.getLhs());
-    }
+  } else if (auto Add = mlir::dyn_cast_or_null<cir::AddOp>(Inc)) {
+    if (IsIVLoad(Add.getLhs()))
+      StepValue = getConstantInt(Add.getRhs());
+    else if (IsIVLoad(Add.getRhs()))
+      StepValue = getConstantInt(Add.getLhs());
   }
   if (!StepValue)
     return std::nullopt;

@@ -1,4 +1,4 @@
-// --smr-cse eliminates redundant memory-effect-free operations (e.g. cir.binop,
+// --smr-cse eliminates redundant memory-effect-free operations (e.g. cir.{{f?(add|sub|mul|div|rem)}},
 // cir.const, cir.cast) when an equivalent operation dominates the call site.
 //
 // RUN: smr-opt --smr-cse %s | FileCheck %s
@@ -11,20 +11,20 @@ module {
   // CHECK-LABEL: cir.func @simple_cse(
   // CHECK-SAME:    %[[ARG0:.*]]: !s32i, %[[ARG1:.*]]: !s32i) -> !s32i
   // CHECK:         %[[C1:.*]] = cir.const #cir.int<1> : !s32i
-  // CHECK-NEXT:    %[[ADD1:.*]] = cir.binop(add, %[[ARG0]], %[[ARG1]]) : !s32i
-  // CHECK-NEXT:    %[[RES:.*]] = cir.binop(mul, %[[ADD1]], %[[C1]]) : !s32i
+  // CHECK-NEXT:    %[[ADD1:.*]] = cir.add %[[ARG0]], %[[ARG1]] : !s32i
+  // CHECK-NEXT:    %[[RES:.*]] = cir.mul %[[ADD1]], %[[C1]] : !s32i
   // CHECK-NOT:     cir.const #cir.int<1>
-  // CHECK-NOT:     cir.binop(add
+  // CHECK-NOT:     cir.add
   // CHECK:         cir.return %[[RES]] : !s32i
   cir.func @simple_cse(%arg0: !s32i, %arg1: !s32i) -> !s32i {
     %0 = cir.const #cir.int<1> : !s32i
-    %1 = cir.binop(add, %arg0, %arg1) : !s32i
+    %1 = cir.add %arg0, %arg1 : !s32i
     
     // Redundant constant and redundant addition (must be eliminated)
     %2 = cir.const #cir.int<1> : !s32i
-    %3 = cir.binop(add, %arg0, %arg1) : !s32i
+    %3 = cir.add %arg0, %arg1 : !s32i
     
-    %4 = cir.binop(mul, %3, %2) : !s32i
+    %4 = cir.mul %3, %2 : !s32i
     cir.return %4 : !s32i
   }
 

@@ -109,11 +109,26 @@ bool isInvariantInOp(mlir::Value V, mlir::Operation *ScopeOp) {
   return false;
 }
 
+enum class ArithKind { Add, Sub, Mul, Div, Other };
+
+ArithKind getArithKind(mlir::Operation *Op) {
+  if (mlir::isa<cir::FAddOp>(Op))
+    return ArithKind::Add;
+  if (mlir::isa<cir::FSubOp>(Op))
+    return ArithKind::Sub;
+  if (mlir::isa<cir::FMulOp>(Op))
+    return ArithKind::Mul;
+  if (mlir::isa<cir::FDivOp>(Op))
+    return ArithKind::Div;
+  return ArithKind::Other;
+}
+
 /// Base pattern that increments the pass rewrite counter on every match.
-template <typename OpTy>
-struct FastMathPattern : public mlir::OpRewritePattern<OpTy> {
+template <typename OpTy,
+          template <typename> class Base = mlir::OpRewritePattern>
+struct FastMathPattern : public Base<OpTy> {
   FastMathPattern(mlir::MLIRContext *Ctx, unsigned &Rewrites)
-      : mlir::OpRewritePattern<OpTy>(Ctx), Rewrites(Rewrites) {}
+      : Base<OpTy>(Ctx), Rewrites(Rewrites) {}
 
 protected:
   mlir::LogicalResult countSuccess() const {
@@ -124,17 +139,30 @@ protected:
   unsigned &Rewrites;
 };
 
+/// A pattern on the binary arithmetic operations (add, sub, mul, div, ...).
+using FastMathBinaryPattern =
+    FastMathPattern<cir::BinaryOpInterface, mlir::OpInterfaceRewritePattern>;
+
+/// An add or a multiplication, according to Kind, in place of Op.
+void replaceWithAddOrMul(mlir::PatternRewriter &Rewriter, mlir::Operation *Op,
+                         ArithKind Kind, mlir::Value Lhs, mlir::Value Rhs) {
+  if (Kind == ArithKind::Add)
+    Rewriter.replaceOpWithNewOp<cir::FAddOp>(Op, mlir::ValueRange{Lhs, Rhs});
+  else
+    Rewriter.replaceOpWithNewOp<cir::FMulOp>(Op, mlir::ValueRange{Lhs, Rhs});
+}
+
 //===----------------------------------------------------------------------===//
 // 1. Algebraic Identities (No-NaNs, No-Inf, No-Signed-Zeros)
 //===----------------------------------------------------------------------===//
 
-struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
-  using FastMathPattern::FastMathPattern;
+struct SimplifyFPBinOp : public FastMathBinaryPattern {
+  using FastMathBinaryPattern::FastMathBinaryPattern;
 
   mlir::LogicalResult
-  matchAndRewrite(cir::BinOp Op,
+  matchAndRewrite(cir::BinaryOpInterface Op,
                   mlir::PatternRewriter &Rewriter) const override {
-    mlir::Type Ty = Op.getType();
+    mlir::Type Ty = Op->getResult(0).getType();
     if (!isCIRFloatType(Ty))
       return mlir::failure();
 
@@ -142,10 +170,10 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
     mlir::Value Rhs = Op.getRhs();
     auto LhsC = getFPConstant(Lhs);
     auto RhsC = getFPConstant(Rhs);
-    mlir::Location Loc = Op.getLoc();
+    mlir::Location Loc = Op->getLoc();
 
-    switch (Op.getKind()) {
-    case cir::BinOpKind::Add:
+    switch (getArithKind(Op)) {
+    case ArithKind::Add:
       // x + 0.0 -> x and 0.0 + x -> x
       if (RhsC && isZero(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
@@ -157,7 +185,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       }
       break;
 
-    case cir::BinOpKind::Sub:
+    case ArithKind::Sub:
       // x - 0.0 -> x
       if (RhsC && isZero(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
@@ -165,8 +193,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       }
       // 0.0 - x -> -x
       if (LhsC && isZero(*LhsC)) {
-        Rewriter.replaceOpWithNewOp<cir::UnaryOp>(Op, Ty,
-                                                  cir::UnaryOpKind::Minus, Rhs);
+        Rewriter.replaceOpWithNewOp<cir::FNegOp>(Op, mlir::ValueRange{Rhs});
         return countSuccess();
       }
       // x - x -> 0.0
@@ -178,7 +205,7 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       }
       break;
 
-    case cir::BinOpKind::Mul:
+    case ArithKind::Mul:
       // x * 0.0 -> 0.0 and 0.0 * x -> 0.0
       if ((RhsC && isZero(*RhsC)) || (LhsC && isZero(*LhsC))) {
         auto FPTy = mlir::cast<cir::FPTypeInterface>(getScalarFloatType(Ty));
@@ -197,18 +224,16 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
       }
       // x * -1.0 -> -x and -1.0 * x -> -x
       if (RhsC && isMinusOne(*RhsC)) {
-        Rewriter.replaceOpWithNewOp<cir::UnaryOp>(Op, Ty,
-                                                  cir::UnaryOpKind::Minus, Lhs);
+        Rewriter.replaceOpWithNewOp<cir::FNegOp>(Op, mlir::ValueRange{Lhs});
         return countSuccess();
       }
       if (LhsC && isMinusOne(*LhsC)) {
-        Rewriter.replaceOpWithNewOp<cir::UnaryOp>(Op, Ty,
-                                                  cir::UnaryOpKind::Minus, Rhs);
+        Rewriter.replaceOpWithNewOp<cir::FNegOp>(Op, mlir::ValueRange{Rhs});
         return countSuccess();
       }
       break;
 
-    case cir::BinOpKind::Div:
+    case ArithKind::Div:
       // x / 1.0 -> x
       if (RhsC && isOne(*RhsC)) {
         Rewriter.replaceOp(Op, Lhs);
@@ -228,29 +253,29 @@ struct SimplifyFPBinOp : public FastMathPattern<cir::BinOp> {
 // 2. Reassociation and Constant Folding
 //===----------------------------------------------------------------------===//
 
-struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
-  using FastMathPattern::FastMathPattern;
+struct ReassociateAndFoldFP : public FastMathBinaryPattern {
+  using FastMathBinaryPattern::FastMathBinaryPattern;
 
   mlir::LogicalResult
-  matchAndRewrite(cir::BinOp Op,
+  matchAndRewrite(cir::BinaryOpInterface Op,
                   mlir::PatternRewriter &Rewriter) const override {
-    mlir::Type Ty = Op.getType();
+    mlir::Type Ty = Op->getResult(0).getType();
     if (!isCIRFloatType(Ty))
       return mlir::failure();
 
-    auto Kind = Op.getKind();
+    ArithKind Kind = getArithKind(Op);
     mlir::Value Lhs = Op.getLhs();
     mlir::Value Rhs = Op.getRhs();
-    mlir::Location Loc = Op.getLoc();
+    mlir::Location Loc = Op->getLoc();
 
     // (x + C1) + C2 -> x + (C1 + C2) and (x * C1) * C2 -> x * (C1 * C2)
-    if (Kind == cir::BinOpKind::Add || Kind == cir::BinOpKind::Mul) {
+    if (Kind == ArithKind::Add || Kind == ArithKind::Mul) {
       if (auto C2 = getFPConstant(Rhs)) {
-        if (auto Inner = Lhs.getDefiningOp<cir::BinOp>()) {
-          if (Inner.getKind() == Kind) {
+        if (auto Inner = Lhs.getDefiningOp<cir::BinaryOpInterface>()) {
+          if (getArithKind(Inner) == Kind) {
             if (auto C1 = getFPConstant(Inner.getRhs())) {
               llvm::APFloat Folded = *C1;
-              if (Kind == cir::BinOpKind::Add)
+              if (Kind == ArithKind::Add)
                 Folded.add(*C2, llvm::APFloat::rmNearestTiesToEven);
               else
                 Folded.multiply(*C2, llvm::APFloat::rmNearestTiesToEven);
@@ -258,8 +283,8 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
               if (!Folded.isNaN() && !Folded.isInfinity()) {
                 mlir::Value NewConst =
                     createFPConstant(Rewriter, Loc, Ty, Folded);
-                Rewriter.replaceOpWithNewOp<cir::BinOp>(
-                    Op, Ty, Kind, Inner.getLhs(), NewConst);
+                replaceWithAddOrMul(Rewriter, Op, Kind, Inner.getLhs(),
+                                    NewConst);
                 return countSuccess();
               }
             }
@@ -269,17 +294,15 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
     }
 
     // (x + y) - y -> x and (y + x) - y -> x
-    if (Kind == cir::BinOpKind::Sub) {
-      if (auto Inner = Lhs.getDefiningOp<cir::BinOp>()) {
-        if (Inner.getKind() == cir::BinOpKind::Add) {
-          if (isSameFPValue(Inner.getRhs(), Rhs)) {
-            Rewriter.replaceOp(Op, Inner.getLhs());
-            return countSuccess();
-          }
-          if (isSameFPValue(Inner.getLhs(), Rhs)) {
-            Rewriter.replaceOp(Op, Inner.getRhs());
-            return countSuccess();
-          }
+    if (Kind == ArithKind::Sub) {
+      if (auto Inner = Lhs.getDefiningOp<cir::FAddOp>()) {
+        if (isSameFPValue(Inner.getRhs(), Rhs)) {
+          Rewriter.replaceOp(Op, Inner.getLhs());
+          return countSuccess();
+        }
+        if (isSameFPValue(Inner.getLhs(), Rhs)) {
+          Rewriter.replaceOp(Op, Inner.getRhs());
+          return countSuccess();
         }
       }
     }
@@ -292,24 +315,25 @@ struct ReassociateAndFoldFP : public FastMathPattern<cir::BinOp> {
 // 3. Division to Reciprocal Multiplication
 //===----------------------------------------------------------------------===//
 
-struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
+struct DivToReciprocalMul : public FastMathBinaryPattern {
   DivToReciprocalMul(mlir::MLIRContext *Ctx, unsigned &Rewrites,
                      bool DynamicRecip)
-      : FastMathPattern(Ctx, Rewrites), EnableDynamicRecip(DynamicRecip) {}
+      : FastMathBinaryPattern(Ctx, Rewrites), EnableDynamicRecip(DynamicRecip) {
+  }
 
   mlir::LogicalResult
-  matchAndRewrite(cir::BinOp Op,
+  matchAndRewrite(cir::BinaryOpInterface Op,
                   mlir::PatternRewriter &Rewriter) const override {
-    if (Op.getKind() != cir::BinOpKind::Div)
+    if (getArithKind(Op) != ArithKind::Div)
       return mlir::failure();
 
-    mlir::Type Ty = Op.getType();
+    mlir::Type Ty = Op->getResult(0).getType();
     if (!isCIRFloatType(Ty))
       return mlir::failure();
 
     mlir::Value Lhs = Op.getLhs();
     mlir::Value Rhs = Op.getRhs();
-    mlir::Location Loc = Op.getLoc();
+    mlir::Location Loc = Op->getLoc();
     auto FPTy = mlir::cast<cir::FPTypeInterface>(getScalarFloatType(Ty));
 
     // Case A: x / C -> x * (1.0 / C)
@@ -323,8 +347,8 @@ struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
         return mlir::failure();
 
       mlir::Value RecipConst = createFPConstant(Rewriter, Loc, Ty, Recip);
-      Rewriter.replaceOpWithNewOp<cir::BinOp>(Op, Ty, cir::BinOpKind::Mul, Lhs,
-                                              RecipConst);
+      Rewriter.replaceOpWithNewOp<cir::FMulOp>(
+          Op, mlir::ValueRange{Lhs, RecipConst});
       return countSuccess();
     }
 
@@ -342,10 +366,9 @@ struct DivToReciprocalMul : public FastMathPattern<cir::BinOp> {
 
       llvm::APFloat One = llvm::APFloat::getOne(FPTy.getFloatSemantics());
       mlir::Value OneConst = createFPConstant(Rewriter, Loc, Ty, One);
-      mlir::Value InvY = cir::BinOp::create(Rewriter, Loc, Ty,
-                                            cir::BinOpKind::Div, OneConst, Rhs);
-      Rewriter.replaceOpWithNewOp<cir::BinOp>(Op, Ty, cir::BinOpKind::Mul, Lhs,
-                                              InvY);
+      mlir::Value InvY =
+          cir::FDivOp::create(Rewriter, Loc, mlir::ValueRange{OneConst, Rhs});
+      Rewriter.replaceOpWithNewOp<cir::FMulOp>(Op, mlir::ValueRange{Lhs, InvY});
       return countSuccess();
     }
 
@@ -433,32 +456,31 @@ struct EliminateMathClassificationCalls : public FastMathPattern<cir::CallOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// 5. Fused Multiply-Add Contraction: (a * b) + c -> cir.llvm.intrinsic "fma"
+// 5. Fused Multiply-Add Contraction: (a * b) + c -> cir.call_llvm_intrinsic
+// "fma"
 //===----------------------------------------------------------------------===//
 
-struct ContractFMA : public FastMathPattern<cir::BinOp> {
-  using FastMathPattern::FastMathPattern;
+struct ContractFMA : public FastMathBinaryPattern {
+  using FastMathBinaryPattern::FastMathBinaryPattern;
 
   mlir::LogicalResult
-  matchAndRewrite(cir::BinOp Op,
+  matchAndRewrite(cir::BinaryOpInterface Op,
                   mlir::PatternRewriter &Rewriter) const override {
-    if (Op.getKind() != cir::BinOpKind::Add)
+    if (getArithKind(Op) != ArithKind::Add)
       return mlir::failure();
 
-    mlir::Type Ty = Op.getType();
+    mlir::Type Ty = Op->getResult(0).getType();
     if (!isCIRFloatType(Ty))
       return mlir::failure();
 
     mlir::Value A, B, C;
-    if (auto MulLhs = Op.getLhs().getDefiningOp<cir::BinOp>();
-        MulLhs && MulLhs.getKind() == cir::BinOpKind::Mul &&
-        MulLhs->hasOneUse()) {
+    if (auto MulLhs = Op.getLhs().getDefiningOp<cir::FMulOp>();
+        MulLhs && MulLhs->hasOneUse()) {
       A = MulLhs.getLhs();
       B = MulLhs.getRhs();
       C = Op.getRhs();
-    } else if (auto MulRhs = Op.getRhs().getDefiningOp<cir::BinOp>();
-               MulRhs && MulRhs.getKind() == cir::BinOpKind::Mul &&
-               MulRhs->hasOneUse()) {
+    } else if (auto MulRhs = Op.getRhs().getDefiningOp<cir::FMulOp>();
+               MulRhs && MulRhs->hasOneUse()) {
       A = MulRhs.getLhs();
       B = MulRhs.getRhs();
       C = Op.getLhs();

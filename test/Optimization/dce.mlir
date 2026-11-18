@@ -12,14 +12,14 @@ module {
   // CHECK-NOT:     cir.const
   // CHECK-NOT:     cir.load
   // CHECK-NOT:     cir.ptr_stride
-  // CHECK-NOT:     cir.binop
+  // CHECK-NOT:     cir.{{f?(add|sub|mul|div|rem)}}
   // CHECK:         cir.return %arg0
   cir.func @dead_values(%arg0: !s32i, %arg1: !cir.ptr<!s32i>) -> !s32i {
-    %0 = cir.alloca !s32i, !cir.ptr<!s32i>, ["unused"] {alignment = 4 : i64}
+    %0 = cir.alloca "unused" align(4) : !cir.ptr<!s32i>
     %1 = cir.const #cir.int<7> : !s32i
     %2 = cir.load %arg1 : !cir.ptr<!s32i>, !s32i
     %3 = cir.ptr_stride %arg1, %1 : (!cir.ptr<!s32i>, !s32i) -> !cir.ptr<!s32i>
-    %4 = cir.binop(add, %2, %1) : !s32i
+    %4 = cir.add %2, %1 : !s32i
     cir.return %arg0 : !s32i
   }
 
@@ -28,21 +28,21 @@ module {
   // a volatile one and the slot of a parameter stay.
   //
   // CHECK-LABEL: cir.func @store_only(
-  // CHECK-NOT:     ["written"
-  // CHECK-DAG:     ["read", init]
-  // CHECK-DAG:     ["escapes", init]
-  // CHECK-DAG:     ["vol", init]
-  // CHECK-DAG:     ["param", init]
-  // CHECK-NOT:     cir.binop
+  // CHECK-NOT:     cir.alloca "written"
+  // CHECK-DAG:     cir.alloca "read" align({{[0-9]+}}) init
+  // CHECK-DAG:     cir.alloca "escapes" align({{[0-9]+}}) init
+  // CHECK-DAG:     cir.alloca "vol" align({{[0-9]+}}) init
+  // CHECK-DAG:     cir.alloca "param" align({{[0-9]+}}) init
+  // CHECK-NOT:     cir.{{f?(add|sub|mul|div|rem)}}
   // CHECK:         cir.return
   cir.func @store_only(%arg0: !s32i, %arg1: !s32i) -> !s32i {
-    %param = cir.alloca !s32i, !cir.ptr<!s32i>, ["param", init] {alignment = 4 : i64}
-    %written = cir.alloca !s32i, !cir.ptr<!s32i>, ["written", init] {alignment = 4 : i64}
-    %read = cir.alloca !s32i, !cir.ptr<!s32i>, ["read", init] {alignment = 4 : i64}
-    %escapes = cir.alloca !s32i, !cir.ptr<!s32i>, ["escapes", init] {alignment = 4 : i64}
-    %vol = cir.alloca !s32i, !cir.ptr<!s32i>, ["vol", init] {alignment = 4 : i64}
+    %param = cir.alloca "param" align(4) init : !cir.ptr<!s32i>
+    %written = cir.alloca "written" align(4) init : !cir.ptr<!s32i>
+    %read = cir.alloca "read" align(4) init : !cir.ptr<!s32i>
+    %escapes = cir.alloca "escapes" align(4) init : !cir.ptr<!s32i>
+    %vol = cir.alloca "vol" align(4) init : !cir.ptr<!s32i>
     cir.store %arg0, %param : !s32i, !cir.ptr<!s32i>
-    %sum = cir.binop(add, %arg0, %arg1) : !s32i
+    %sum = cir.add %arg0, %arg1 : !s32i
     cir.store %sum, %written : !s32i, !cir.ptr<!s32i>
     cir.store %arg1, %read : !s32i, !cir.ptr<!s32i>
     cir.store %arg1, %escapes : !s32i, !cir.ptr<!s32i>

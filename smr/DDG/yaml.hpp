@@ -30,8 +30,6 @@ static yaml Configs = {
          {"global", {{"must-match-attr", {"initial_value"}}}},
          {"load", {{"reads-from", {"0"}}}},
          {"store", {{"writes-to", {"1"}}}},
-         {"binop", {{"must-match-attr", {"kind"}}}},
-         {"unary", {{"must-match-attr", {"kind"}}}},
          {"cmp", {{"must-match-attr", {"kind"}}}},
          {"const", {{"must-match-attr", {"value"}}}},
          {"get_member",

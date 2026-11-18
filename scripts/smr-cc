@@ -1,15 +1,21 @@
 #!/bin/bash
-# A C compiler that sends every translation unit through SMR:
+# A C compiler that sends a translation unit through SMR when a pattern applies
+# to it:
 #
 #   clang -E  ->  smr (SMR_PATS)  ->  cir-translate  ->  clang -O3 -c
 #
 # Use it as CC (or CMAKE_C_COMPILER) to build a program with the patterns in
-# SMR_PATS applied. With SMR_PATS empty nothing is rewritten, and the output is
-# what the CIR path gives without any pattern: the control of an evaluation.
+# SMR_PATS applied. A unit where smr applies no rewrite and no global
+# optimization is compiled by plain clang, so it is what clang gives and it
+# follows the ABI of the machine. The CIR path does not on aarch64 (ClangIR
+# has no sret there yet), so mixing its objects with clang's can crash.
 # Anything that is not "compile one .c file" goes to clang unchanged, and a
-# translation unit SMR cannot handle falls back to `clang -fclangir`.
+# translation unit SMR cannot handle falls back to plain clang.
 #
 #   SMR_PATS     .pat files, separated by spaces
+#   SMR_CC_ALL   set it to send every unit through the CIR path, with no
+#                pattern too: the control of an evaluation of the CIR path
+#                itself (fallbacks then use `clang -fclangir`)
 #   SMR_CC_LOG   file that gets one line per translation unit
 #   SMR_CC_CLANG the clang to use (default: clang)
 
@@ -48,11 +54,23 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 name=$(basename "${source%.c}")
 
-fallback() {
-  echo "FALLBACK $source ($1)" >> "$LOG"
-  "$CLANG" -fclangir "${ORIGINAL[@]}"
+skip() {
+  echo "SKIP $source" >> "$LOG"
+  "$CLANG" "${ORIGINAL[@]}"
   exit $?
 }
+
+fallback() {
+  echo "FALLBACK $source ($1)" >> "$LOG"
+  if [ -n "$SMR_CC_ALL" ]; then
+    "$CLANG" -fclangir "${ORIGINAL[@]}"
+  else
+    "$CLANG" "${ORIGINAL[@]}"
+  fi
+  exit $?
+}
+
+[ -n "$SMR_PATS" ] || [ -n "$SMR_CC_ALL" ] || skip
 
 # Dependency flags only matter for the preprocessing, the rest of the flags
 # only for the last step.
@@ -63,9 +81,15 @@ fallback() {
 smr "$work/$name.c" $SMR_PATS -o "$work/$name.mlir" > "$work/smr.log" 2>&1 ||
   fallback "smr failed"
 [ -s "$work/$name.mlir" ] || fallback "smr wrote nothing"
+[ -n "$SMR_CC_ALL" ] ||
+  grep -q "Applying rewrite\|Applying optimization" "$work/smr.log" || skip
 
-cir-translate --cir-to-llvmir "$work/$name.mlir" -o "$work/$name.ll" 2> "$work/err" ||
+cir-translate --cir-to-llvmir "$work/$name.mlir" -o "$work/$name.cir.ll" 2> "$work/err" ||
   fallback "cir-translate failed"
+
+# The data layout cir-translate writes is not the one of the target, and the
+# backend rejects it. Without it clang uses the one of the target.
+sed '/^target datalayout/d' "$work/$name.cir.ll" > "$work/$name.ll"
 
 "$CLANG" -Wno-unused-command-line-argument "${backend[@]}" -c "$work/$name.ll" \
   -o "$output" 2> "$work/err" || fallback "clang failed on the LLVM IR"
