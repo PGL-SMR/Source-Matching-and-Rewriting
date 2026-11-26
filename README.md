@@ -16,7 +16,7 @@ On this page, you can find the following useful information:
 
 > **Note:** A pre-configured **`DockerfileUpstream`** is available in the `docker` directory of this repository. You can use it to build and run the entire environment with all dependencies and upstream LLVM, with CIR enabled, pre-installed. If you want to perform your own installation without using Docker, follow the instructions below.
 >
-> Once the image is built (`docker build -t smr-dev -f docker/DockerfileUpstream docker`), `scripts/docker-build.sh [TARGET]` builds SMR inside it into `./build`.
+> Once the image is built (`docker build -t smr-dev-upstream -f docker/DockerfileUpstream docker`), `scripts/docker-build.sh [TARGET]` builds SMR inside it into `./build`.
 
 ### Install SMR dependencies:
 
