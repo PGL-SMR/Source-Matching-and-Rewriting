@@ -202,8 +202,8 @@ int Manager::validateInput(mlir::ModuleOp Module) {
   if (!functionIsNotEmpty(Module))
     return error(Msg::FAIL_FUNC_NOT_EMPTY, "Input");
 
-  if (!regionsHaveAtMostOneBlock(Module))
-    return error(Msg::FAIL_SINGLE_BLOCK, "Input");
+  //if (!regionsHaveAtMostOneBlock(Module))
+  //  return error(Msg::FAIL_SINGLE_BLOCK, "Input");
 
   return 0;
 }

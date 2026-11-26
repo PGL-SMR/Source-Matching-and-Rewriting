@@ -58,8 +58,25 @@ public:
 
   /// \brief Get global operation used by an operation.
   mlir::Operation *getGlobalOp(mlir::Operation *Op) {
-    auto GlobalName = mlirToString(Op->getAttr("name")).substr(1);
-    return SymbolTable.at(GlobalName);
+    auto Attr = Op->getAttr("name");
+    if (!Attr)
+      return nullptr;
+
+    std::string GlobalName;
+    if (auto StrAttr = mlir::dyn_cast<mlir::StringAttr>(Attr)) {
+      GlobalName = StrAttr.getValue().str();
+    } else {
+      GlobalName = mlirToString(Attr);
+      if (GlobalName.size() >= 2 && GlobalName.front() == '"' &&
+          GlobalName.back() == '"') {
+        GlobalName = GlobalName.substr(1, GlobalName.size() - 2);
+      }
+    }
+
+    auto It = SymbolTable.find(GlobalName);
+    if (It == SymbolTable.end())
+      return nullptr;
+    return It->second;
   }
 
   /// \brief Get number of registered global declarations.

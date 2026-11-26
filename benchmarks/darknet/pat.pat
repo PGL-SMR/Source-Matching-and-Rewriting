@@ -1,4 +1,4 @@
-$pip = [tiling(64)]
+$pipeline = [tiling(64)]
 
 c {
 void sgemm_nn(int M, int N, int K, float ALPHA, 
@@ -16,7 +16,7 @@ void sgemm_nn(int M, int N, int K, float ALPHA,
         }
     }
 }
-} [$pip]
+} [$pipeline]
 c {
 void sgemm_nt(int M, int N, int K, float ALPHA, 
         float *A, int lda, 
@@ -34,7 +34,7 @@ void sgemm_nt(int M, int N, int K, float ALPHA,
         }
     }
 }
-} [$pip]
+} [$pipeline]
 c {
 void sgemm_tn(int M, int N, int K, float ALPHA, 
         float *A, int lda, 
@@ -51,7 +51,7 @@ void sgemm_tn(int M, int N, int K, float ALPHA,
         }
     }
 }
-} [$pip]
+} [$pipeline]
 
 c {
 void sgemm_tt(int M, int N, int K, float ALPHA, 
@@ -70,4 +70,4 @@ void sgemm_tt(int M, int N, int K, float ALPHA,
         }
     }
 }
-} [$pip]
+} [$pipeline]

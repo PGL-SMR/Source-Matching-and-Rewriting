@@ -27,6 +27,104 @@ private:
 
   std::set<int> FinalStates;
 
+  
+  static bool dominatesOpInEntryBlock(mlir::Operation *DefOp,
+                                      mlir::Operation *TargetOp) {
+    mlir::Block *DefBlock = DefOp->getBlock();
+    if (!DefBlock || !DefBlock->isEntryBlock())
+      return false;
+
+    mlir::Operation *Ancestor = TargetOp;
+    while (Ancestor && Ancestor->getBlock() != DefBlock)
+      Ancestor = Ancestor->getParentOp();
+
+    if (Ancestor)
+      return DefOp->isBeforeInBlock(Ancestor);
+
+    return DefBlock->getParentOp() &&
+           DefBlock->getParentOp()->isAncestor(TargetOp);
+  }
+
+  mlir::Value canonicalizeSource(mlir::Value Val) const {
+    if (!Val)
+      return Val;
+
+    auto *LoadOp = Val.getDefiningOp();
+    if (!LoadOp || LoadOp->getName().getStringRef() != "cir.load" ||
+        LoadOp->getNumOperands() < 1)
+      return Val;
+
+    mlir::Value Ptr = LoadOp->getOperand(0);
+    auto *AllocaOp = Ptr.getDefiningOp();
+    if (!AllocaOp || AllocaOp->getName().getStringRef() != "cir.alloca")
+      return Val;
+
+    mlir::Operation *SingleStore = nullptr;
+    for (mlir::OpOperand &Use : Ptr.getUses()) {
+      mlir::Operation *User = Use.getOwner();
+      auto Name = User->getName().getStringRef();
+      if (Name == "cir.load" && Use.getOperandNumber() == 0)
+        continue;
+      if (Name == "cir.store" && Use.getOperandNumber() == 1) {
+        if (SingleStore != nullptr)
+          return Val;
+        SingleStore = User;
+        continue;
+      }
+      return Val;
+    }
+
+    if (!SingleStore || (Input && Input->isAncestor(SingleStore)))
+      return Val;
+
+    if (Input && !dominatesOpInEntryBlock(SingleStore, Input))
+      return Val;
+
+    return SingleStore->getOperand(0);
+  }
+
+  bool areEquivalentValues(mlir::Value A, mlir::Value B,
+                           unsigned Depth = 0) const {
+    if (A == B)
+      return true;
+    if (!A || !B || Depth > 8 || A.getType() != B.getType())
+      return false;
+
+    auto *OpA = A.getDefiningOp();
+    auto *OpB = B.getDefiningOp();
+    if (!OpA || !OpB)
+      return false;
+
+    if (OpA->getName() != OpB->getName() ||
+        OpA->getNumOperands() != OpB->getNumOperands() ||
+        OpA->getNumResults() != OpB->getNumResults() ||
+        OpA->getAttrDictionary() != OpB->getAttrDictionary() ||
+        OpA->getPropertiesAsAttribute() != OpB->getPropertiesAsAttribute())
+      return false;
+
+    auto Name = OpA->getName().getStringRef();
+    if (Name != "cir.load" && Name != "cir.get_member" && Name != "cir.cast")
+      return false;
+
+    if (Name == "cir.load" && Input) {
+      mlir::Value Ptr = OpA->getOperand(0);
+      for (mlir::OpOperand &Use : Ptr.getUses()) {
+        mlir::Operation *User = Use.getOwner();
+        if (User->getName().getStringRef() == "cir.store" &&
+            Use.getOperandNumber() == 1 && Input->isAncestor(User))
+          return false;
+      }
+    }
+
+    for (unsigned i = 0; i < OpA->getNumOperands(); ++i) {
+      if (!areEquivalentValues(OpA->getOperand(i), OpB->getOperand(i),
+                               Depth + 1))
+        return false;
+    }
+
+    return true;
+  }
+  
   /// \brief Match a value with a pattern wildcard.
   ///
   /// \param Wildcard Wildcard representing a pattern input argument.
@@ -35,11 +133,13 @@ private:
   /// \return True if the value matches the wildcard, false otherwise.
   ///
   bool matchWildcard(const Wildcard &Wildcard, mlir::Value &Source) {
-    // Bind source to group or get existing binding.
-    auto BoundSource = Groups.insert({Wildcard.Group, Source});
+    mlir::Value Canonical = canonicalizeSource(Source);
 
-    // Originates from a different value: fail match.
-    return BoundSource.first->second == Source;
+    // Bind source to group or get existing binding.
+    auto BoundSource = Groups.insert({Wildcard.Group, Canonical});
+
+    // Succeed if bound to the same value or an equivalent loop-invariant read.
+    return areEquivalentValues(BoundSource.first->second, Canonical);
   };
 
 public:
