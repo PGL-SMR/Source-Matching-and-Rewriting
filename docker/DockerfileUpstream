@@ -15,11 +15,13 @@ RUN apt-get update && apt-get install -y \
     ninja-build \
     software-properties-common \
     wget \
+    python3-pip \
+    python3-setuptools \
  && rm -rf /var/lib/apt/lists/*
 
 # Clone upstream llvm-project directly
 WORKDIR /opt
-RUN git clone --filter=blob:none https://github.com/llvm/llvm-project.git
+RUN git clone --filter=blob:none https://github.com/llvm/llvm-project.git && cd llvm-project && git checkout a2d33dd8be
 
 # Build LLVM + Clang + MLIR + Flang + LLD
 WORKDIR /opt/llvm-project
@@ -31,15 +33,19 @@ RUN cmake -G Ninja -S ./llvm -B ./build \
  -DLLVM_ENABLE_PROJECTS="clang;mlir;flang;lld" \
  -DCLANG_ENABLE_CIR=ON \
  -DLLVM_ENABLE_RTTI=ON \
+ -DLLVM_INSTALL_UTILS=ON \
  -DLLVM_TARGETS_TO_BUILD="host" \
  -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-declarations -Wno-deprecated-declarations" \
  -DLLVM_ENABLE_RUNTIMES="compiler-rt;flang-rt"
 
 RUN ninja -j2 -C ./build install \
+ && pip3 install --no-cache-dir ./llvm/utils/lit \
  && rm -rf ./build
 
 # Symlink flang-new to flang
 RUN ln -sf ${LLVM_INST_DIR}/bin/flang-new ${LLVM_INST_DIR}/bin/flang
+
+RUN ln -s /usr/local/bin/lit "${LLVM_INST_DIR}/bin/llvm-lit"
 
 WORKDIR /root
 

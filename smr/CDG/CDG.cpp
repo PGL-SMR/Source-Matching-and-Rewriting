@@ -32,6 +32,11 @@ std::string CDG::dump() {
   return Output;
 }
 
+static bool isTransparentCirOp(mlir::Operation &Op) {
+  auto Name = Op.getName().getStringRef();
+  return Name == "cir.load" || Name == "cir.get_member" || Name == "cir.cast";
+}
+
 void CDG::stringify(mlir::Block &Block, CdgString &Path, RdosMap *Rdos) {
   std::string Source;
   llvm::raw_string_ostream Stream(Source);
@@ -47,7 +52,8 @@ void CDG::stringify(mlir::Block &Block, CdgString &Path, RdosMap *Rdos) {
   for (mlir::Operation &Op : Block.getOperations()) {
     // Not an RDO: count non-RDO operation.
     if (Op.getRegions().empty()) {
-      Count++;
+      if (!isTransparentCirOp(Op))
+        Count++;
       // Is an RDO: recurse into RDO.
     } else {
       // Has non-RDOS: stringify amount of consecutive non-RDOs.

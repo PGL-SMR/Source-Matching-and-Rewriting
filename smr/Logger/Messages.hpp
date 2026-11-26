@@ -90,7 +90,7 @@ const std::array<Message, 64> Messages = {{
     {FAIL_AT_LEAST_ONE_RDO, "Pattern {0} has no RDOs in the wrapper function."},
     {NULL_PATTERN_ROOT, "Pattern {0} has no root operation."},
     {START_CDG_MATCHING, "Starting CDG matching..."},
-    {FAIL_SINGLE_BLOCK, "{0} {1} has regions with more than one basic block."},
+    {FAIL_SINGLE_BLOCK, "{0} has regions with more than one basic block."},
     {START_DDG_MATCHING, "Starting DDG matching..."},
     {START_REWRITING, "Starting rewrite stage..."},
     {SELECTING_REWRITES, "Selecting between {0} possible rewrites..."},

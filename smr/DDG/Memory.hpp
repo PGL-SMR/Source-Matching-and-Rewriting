@@ -32,15 +32,6 @@ private:
     return Op->getOperand(std::stoi(index.str()));
   }
 
-  /// \brief Get the write target operand index of an operation.
-  static mlir::Value getWriteTarget(mlir::Operation *Op) {
-    return getTarget(Op, "writes-to");
-  }
-
-  /// \brief Get the read target operand index of an operation.
-  static mlir::Value getReadTarget(mlir::Operation *Op) {
-    return getTarget(Op, "reads-from");
-  }
 
   /// \brief Check if an operation is a memory operation.
   ///
@@ -57,6 +48,17 @@ private:
   }
 
 public:
+
+  /// \brief Get the write target operand index of an operation.
+  static mlir::Value getWriteTarget(mlir::Operation *Op) {
+    return getTarget(Op, "writes-to");
+  }
+
+  /// \brief Get the read target operand index of an operation.
+  static mlir::Value getReadTarget(mlir::Operation *Op) {
+    return getTarget(Op, "reads-from");
+  }
+
   /// \brief Check if an operation is a memory read.
   static bool isRead(mlir::Operation *Op) {
     return isMemoryOp(Op, "reads-from");

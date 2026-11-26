@@ -37,6 +37,31 @@ std::string dumpPaths(smr::JagArr<int> Paths, Hash Hasher) {
   return Output;
 }
 
+static bool isScalarEntryRead(mlir::Operation *Op, mlir::Block *EntryBlock) {
+  if (!ddg::Memory::isRead(Op))
+    return false;
+
+  auto Target = ddg::Memory::getReadTarget(Op);
+  auto TargetArg = mlir::dyn_cast<mlir::BlockArgument>(Target);
+  if (!TargetArg || TargetArg.getOwner() != EntryBlock)
+    return false;
+
+  // Reject reads whose index depends on a loop induction variable (e.g., x[i]).
+  for (mlir::Value Operand : Op->getOperands()) {
+    if (Operand == Target)
+      continue;
+    if (auto *Def = Operand.getDefiningOp()) {
+      if (Def->getBlock() != EntryBlock &&
+          !Def->hasTrait<mlir::OpTrait::ConstantLike>())
+        return false;
+    } else if (auto Arg = mlir::dyn_cast<mlir::BlockArgument>(Operand)) {
+      if (Arg.getOwner() != EntryBlock)
+        return false;
+    }
+  }
+  return true;
+}
+
 StringSet DDG::stringify(mlir::Value &Value, mlir::Block *EntryBlock) {
   int Token = -1;
   auto Argument = mlir::cast<mlir::BlockArgument>(Value);
@@ -76,6 +101,31 @@ std::string DDG::stringify(mlir::NamedAttrList &&Attrs) {
 };
 
 StringSet DDG::stringify(mlir::Operation *Op, mlir::Block *EntryBlock) {
+  
+  auto isCirForCondRegion = [](mlir::Operation *Op) {
+    auto *Region = Op->getParentRegion();
+    auto *ParentOp = Region ? Region->getParentOp() : nullptr;
+    return ParentOp && ParentOp->getName().getStringRef() == "cir.for" &&
+           Region->getRegionNumber() == 0;
+  };
+  // Pattern mode: collapse loads of parameter allocas (cir.load of cir.alloca
+  // initialized by cir.store %argK) directly into the %argK wildcard.
+  if (EntryBlock != nullptr && ddg::Memory::isRead(Op) &&
+      isCirForCondRegion(Op)) {
+    if (auto *WriteOp = Memory.getPreviousWrite(Op)) {
+      auto WriteTarget = ddg::Memory::getWriteTarget(WriteOp);
+      for (mlir::Value Operand : WriteOp->getOperands()) {
+        if (Operand == WriteTarget)
+          continue;
+        if (auto Arg = mlir::dyn_cast<mlir::BlockArgument>(Operand)) {
+          if (Arg.getOwner() == EntryBlock) {
+            return stringify(Operand, EntryBlock);
+          }
+        }
+      }
+    }
+  }
+
   StringSet Strings;
   std::string Prefix;
   mlir::OpResult Result;
@@ -118,9 +168,11 @@ StringSet DDG::stringify(mlir::Operation *Op, mlir::Block *EntryBlock) {
 
   // Stringify global dependencies.
   if (ddg::Globals::usesGlobal(Op)) {
-    StringSet Child(stringify(Globals.getGlobalOp(Op), EntryBlock));
-    Child.prepend(Hasher.hash("G"), mlir::Value());
-    Strings.join(std::move(Child));
+    if (auto *GlobalOp = Globals.getGlobalOp(Op)) {
+      StringSet Child(stringify(GlobalOp, EntryBlock));
+      Child.prepend(Hasher.hash("G"), mlir::Value());
+      Strings.join(std::move(Child));
+    }
   }
 
   // Stringify memory dependencies.
