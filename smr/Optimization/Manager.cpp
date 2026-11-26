@@ -129,6 +129,9 @@ int Manager::run(mlir::ModuleOp Module,
     case FUSION:
       PM.addPass(createFusionPass(NewCounter(OptName)));
       break;
+    case FISSION:
+      PM.addPass(createFissionPass(NewCounter(OptName)));
+      break;
     case VECTORIZE: {
       unsigned VF, IC;
       bool AssumeNoAlias;

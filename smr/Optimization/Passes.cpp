@@ -6,6 +6,7 @@ namespace optimization {
 void registerUnrollPass();
 void registerTilingPass();
 void registerFusionPass();
+void registerFissionPass();
 void registerDCEPipeline();
 void registerInlinePass();
 void registerLICMPass();
@@ -22,6 +23,7 @@ void registerSmrPasses() {
   registerUnrollPass();
   registerTilingPass();
   registerFusionPass();
+  registerFissionPass();
   registerDCEPipeline();
   registerInlinePass();
   registerLICMPass();
