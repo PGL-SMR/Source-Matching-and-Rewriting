@@ -3,7 +3,10 @@ version: '3'
 services:
   dev:
     hostname: dev
-    image: sitio/smr-dev
+    build:
+      context: .
+      dockerfile: DockerfileUpstream
+    image: smr-dev-upstream
     volumes:
       - ../:/root/smr
     entrypoint: tail -f /dev/null

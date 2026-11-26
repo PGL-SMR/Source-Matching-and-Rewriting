@@ -26,6 +26,7 @@ enum Opt {
   FAST_MATH,
   FUSION,
   FISSION
+  UNROLL_FULL
 };
 
 /// Metadata structure for an optimization pass.
@@ -36,7 +37,7 @@ struct OptimizationInfo {
 };
 
 /// Table of valid optimization passes and their descriptions.
-const std::array<OptimizationInfo, 14> Optimizations = {{
+const std::array<OptimizationInfo, 15> Optimizations = {{
     {UNROLL, "unroll", "Loop unrolling optimization"},
     {TILING, "tiling", "Loop tiling optimization"},
     {VECTORIZE, "vectorize", "Vectorization optimization"},
@@ -51,6 +52,7 @@ const std::array<OptimizationInfo, 14> Optimizations = {{
     {FAST_MATH, "fast_math", "Fast math optimizations"},
     {FUSION, "fusion", "Loop fusion optimization"},
     {FISSION, "fission", "Loop fission optimization"}
+    {UNROLL_FULL, "unroll_full", "Full unrolling of loops with a small known trip count"}
 }};
 
 /// Structure storing the optimization pass code and its argument list.
