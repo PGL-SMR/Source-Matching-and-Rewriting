@@ -6,14 +6,14 @@
 # Usage: scripts/docker-build.sh [TARGET]
 #
 # Environment:
-#   SMR_IMAGE   Docker image (default: smr-dev, see docker/Dockerfile)
+#   SMR_IMAGE   Docker image (default: smr-dev-upstream, see docker/DockerfileUpstream)
 #   BUILD_DIR   Build directory relative to the repo (default: build)
 #   BUILD_TYPE  CMake build type used on the first configure (default: RelWithDebInfo)
 
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-SMR_IMAGE=${SMR_IMAGE:-smr-dev}
+SMR_IMAGE=${SMR_IMAGE:-smr-dev-upstream}
 BUILD_DIR=${BUILD_DIR:-build}
 BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo}
 TARGET=${1:-smr}
@@ -21,7 +21,7 @@ MOUNT=/root/smr
 
 if ! docker image inspect "$SMR_IMAGE" >/dev/null 2>&1; then
   echo "Image '$SMR_IMAGE' not found. Build it with:" >&2
-  echo "  docker build -t $SMR_IMAGE -f docker/Dockerfile docker" >&2
+  echo "  docker build -t $SMR_IMAGE -f docker/DockerfileUpstream docker" >&2
   exit 1
 fi
 
