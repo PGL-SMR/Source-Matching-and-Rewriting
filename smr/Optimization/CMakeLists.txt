@@ -14,6 +14,7 @@ add_library(Optimization STATIC
 		Transforms/ConstProp.cpp
 		Transforms/Mem2Reg.cpp
 		Transforms/FastMath.cpp
+		Transforms/Fission.cpp
 		Transforms/Fusion.cpp
 		Transforms/Vectorize.cpp
 )

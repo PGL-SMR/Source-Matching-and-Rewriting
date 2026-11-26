@@ -25,6 +25,7 @@ enum Opt {
   MEM2REG,
   FAST_MATH,
   FUSION,
+  FISSION
   UNROLL_FULL
 };
 
@@ -36,7 +37,7 @@ struct OptimizationInfo {
 };
 
 /// Table of valid optimization passes and their descriptions.
-const std::array<OptimizationInfo, 14> Optimizations = {{
+const std::array<OptimizationInfo, 15> Optimizations = {{
     {UNROLL, "unroll", "Loop unrolling optimization"},
     {TILING, "tiling", "Loop tiling optimization"},
     {VECTORIZE, "vectorize", "Vectorization optimization"},
@@ -50,6 +51,7 @@ const std::array<OptimizationInfo, 14> Optimizations = {{
     {MEM2REG, "mem2reg", "Promote memory allocations to SSA registers"},
     {FAST_MATH, "fast_math", "Fast math optimizations"},
     {FUSION, "fusion", "Loop fusion optimization"},
+    {FISSION, "fission", "Loop fission optimization"}
     {UNROLL_FULL, "unroll_full", "Full unrolling of loops with a small known trip count"}
 }};
 
