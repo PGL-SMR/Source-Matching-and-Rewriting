@@ -92,6 +92,13 @@ int Manager::run(mlir::ModuleOp Module,
       PM.addPass(createUnrollPass(*Factor, NewCounter(OptName)));
       break;
     }
+    case UNROLL_FULL: {
+      auto MaxTripCount = getUnsignedArg(OptSpec, 32);
+      if (!MaxTripCount)
+        return 1;
+      PM.addPass(createUnrollFullPass(*MaxTripCount, NewCounter(OptName)));
+      break;
+    }
     case TILING: {
       auto Size = getUnsignedArg(OptSpec, 32);
       if (!Size)
