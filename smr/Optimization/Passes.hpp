@@ -18,6 +18,12 @@ using ChangeCounter = std::atomic<unsigned>;
 std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor,
                                              ChangeCounter *Changed = nullptr);
 
+/// Unrolls the innermost cir.for loops of a function whose trip count is known
+/// and at most MaxTripCount, one copy of the body for each iteration, and
+/// removes the loop.
+std::unique_ptr<mlir::Pass>
+createUnrollFullPass(unsigned MaxTripCount, ChangeCounter *Changed = nullptr);
+
 /// Tiles the cir.for loops of a function with tiles of Size iterations.
 std::unique_ptr<mlir::Pass> createTilingPass(unsigned Size,
                                              ChangeCounter *Changed = nullptr);

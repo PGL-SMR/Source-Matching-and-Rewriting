@@ -94,6 +94,35 @@ void unroll(CanonicalLoop Loop, unsigned Factor) {
   Rewriter.replaceAllUsesExcept(CondIV, Last, Last);
 }
 
+/// Replaces Loop by one copy of the body for each of its iterations. Loop has
+/// a known trip count T, so unrolling it by T makes the main loop run once and
+/// leaves the original loop with no iteration. The main loop is then replaced
+/// by its body and the original loop is erased. The copies read the IV through
+/// its slot, so the slot gets the value the loop leaves in it.
+void unrollFull(CanonicalLoop Loop) {
+  int64_t TripCount = *Loop.TripCount;
+  unroll(Loop, TripCount);
+
+  cir::ForOp For = Loop.Loop;
+  mlir::IRRewriter Rewriter(For.getContext());
+  mlir::Location Loc = For.getLoc();
+  auto IVType = mlir::cast<cir::IntType>(Loop.IV.getAllocaType());
+
+  Rewriter.eraseOp(For->getNextNode());
+
+  mlir::Block &Body = For.getBody().front();
+  Rewriter.eraseOp(Body.getTerminator());
+  Rewriter.inlineBlockBefore(&Body, For);
+
+  Rewriter.setInsertionPoint(For);
+  auto Current = cir::LoadOp::create(Rewriter, Loc, IVType, Loop.IV);
+  auto Offset = cir::ConstantOp::create(
+      Rewriter, Loc, cir::IntAttr::get(IVType, TripCount * Loop.Step));
+  auto Final = cir::AddOp::create(Rewriter, Loc, IVType, Current, Offset);
+  cir::StoreOp::create(Rewriter, Loc, Final, Loop.IV);
+  Rewriter.eraseOp(For);
+}
+
 struct UnrollPass
     : public mlir::PassWrapper<UnrollPass, mlir::OperationPass<cir::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(UnrollPass)
@@ -128,6 +157,43 @@ struct UnrollPass
                           llvm::cl::init(4)};
 };
 
+struct UnrollFullPass
+    : public mlir::PassWrapper<UnrollFullPass, mlir::OperationPass<cir::FuncOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(UnrollFullPass)
+
+  UnrollFullPass() = default;
+  UnrollFullPass(const UnrollFullPass &Other)
+      : PassWrapper(Other), Changed(Other.Changed) {}
+  UnrollFullPass(unsigned MaxTripCountValue, ChangeCounter *Counter)
+      : Changed(Counter) {
+    MaxTripCount = MaxTripCountValue;
+  }
+
+  llvm::StringRef getArgument() const final { return "smr-unroll-full"; }
+  llvm::StringRef getDescription() const final {
+    return "Fully unroll innermost canonical cir.for loops with a known, small "
+           "trip count";
+  }
+
+  void runOnOperation() override {
+    for (CanonicalLoop &Loop : getInnermostCanonicalLoops(getOperation())) {
+      if (!Loop.TripCount || *Loop.TripCount < 1 ||
+          *Loop.TripCount > MaxTripCount)
+        continue;
+      unrollFull(Loop);
+      if (Changed)
+        ++*Changed;
+    }
+  }
+
+  ChangeCounter *Changed = nullptr;
+
+  Option<unsigned> MaxTripCount{
+      *this, "max-trip-count",
+      llvm::cl::desc("Largest trip count that gets unrolled"),
+      llvm::cl::init(32)};
+};
+
 } // namespace
 
 std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor,
@@ -135,6 +201,14 @@ std::unique_ptr<mlir::Pass> createUnrollPass(unsigned Factor,
   return std::make_unique<UnrollPass>(Factor, Changed);
 }
 
-void registerUnrollPass() { mlir::PassRegistration<UnrollPass>(); }
+std::unique_ptr<mlir::Pass> createUnrollFullPass(unsigned MaxTripCount,
+                                                 ChangeCounter *Changed) {
+  return std::make_unique<UnrollFullPass>(MaxTripCount, Changed);
+}
+
+void registerUnrollPass() {
+  mlir::PassRegistration<UnrollPass>();
+  mlir::PassRegistration<UnrollFullPass>();
+}
 
 } // namespace optimization
