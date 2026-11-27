@@ -108,12 +108,7 @@ public:
     Operands.reserve(Arguments.size());
 
     for (mlir::Value Arg : Arguments) {
-      if (Mapping.contains(Arg)) {
-        Operands.push_back(Mapping.lookup(Arg));
-      } else {
-        Operands.clear(); 
-        return Operands;
-      }
+      Operands.push_back(Mapping.lookupOrNull(Arg));
     }
     return Operands;
   };

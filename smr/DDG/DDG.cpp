@@ -102,25 +102,37 @@ std::string DDG::stringify(mlir::NamedAttrList &&Attrs) {
 
 StringSet DDG::stringify(mlir::Operation *Op, mlir::Block *EntryBlock) {
   
-  auto isCirForCondRegion = [](mlir::Operation *Op) {
-    auto *Region = Op->getParentRegion();
-    auto *ParentOp = Region ? Region->getParentOp() : nullptr;
-    return ParentOp && ParentOp->getName().getStringRef() == "cir.for" &&
-           Region->getRegionNumber() == 0;
-  };
-  // Pattern mode: collapse loads of parameter allocas (cir.load of cir.alloca
-  // initialized by cir.store %argK) directly into the %argK wildcard.
-  if (EntryBlock != nullptr && ddg::Memory::isRead(Op) &&
-      isCirForCondRegion(Op)) {
-    if (auto *WriteOp = Memory.getPreviousWrite(Op)) {
-      auto WriteTarget = ddg::Memory::getWriteTarget(WriteOp);
-      for (mlir::Value Operand : WriteOp->getOperands()) {
-        if (Operand == WriteTarget)
+  // Pattern mode: collapse loads of read-only CIR parameter allocas
+  // (cir.load of cir.alloca initialized once by cir.store %argK) directly into
+  // the %argK wildcard across all regions (conditions and bodies).
+  if (EntryBlock != nullptr && Op->getName().getStringRef() == "cir.load" &&
+      Op->getNumOperands() >= 1) {
+    mlir::Value Ptr = Op->getOperand(0);
+    if (auto *AllocaOp = Ptr.getDefiningOp();
+        AllocaOp && AllocaOp->getName().getStringRef() == "cir.alloca") {
+      mlir::Operation *SingleStore = nullptr;
+      bool ReadOnlyParam = true;
+
+      for (mlir::OpOperand &Use : Ptr.getUses()) {
+        mlir::Operation *User = Use.getOwner();
+        auto Name = User->getName().getStringRef();
+        if (Name == "cir.load" && Use.getOperandNumber() == 0)
           continue;
-        if (auto Arg = mlir::dyn_cast<mlir::BlockArgument>(Operand)) {
-          if (Arg.getOwner() == EntryBlock) {
-            return stringify(Operand, EntryBlock);
-          }
+        if (Name == "cir.store" && Use.getOperandNumber() == 1 &&
+            SingleStore == nullptr) {
+          SingleStore = User;
+          continue;
+        }
+        ReadOnlyParam = false;
+        break;
+      }
+
+      if (ReadOnlyParam && SingleStore &&
+          SingleStore->getBlock() == EntryBlock) {
+        mlir::Value StoredVal = SingleStore->getOperand(0);
+        if (auto Arg = mlir::dyn_cast<mlir::BlockArgument>(StoredVal)) {
+          if (Arg.getOwner() == EntryBlock)
+            return stringify(StoredVal, EntryBlock);
         }
       }
     }
