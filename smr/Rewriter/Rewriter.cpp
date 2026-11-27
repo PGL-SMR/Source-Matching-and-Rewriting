@@ -94,6 +94,21 @@ mlir::Value hoistValueBeforeRoot(mlir::Value Val, mlir::Operation *Root,
   return HoistMapper.lookup(Val);
 }
 
+// Returns true if an unbound replacement argument is only ever used as the
+// stored value in entry-block `cir.store %arg, %alloca` initializers.
+bool isOnlyInitStoredParam(mlir::BlockArgument Arg) {
+  for (mlir::OpOperand &Use : Arg.getUses()) {
+    mlir::Operation *User = Use.getOwner();
+    if (User->getName().getStringRef() != "cir.store" ||
+        Use.getOperandNumber() != 0)
+      return false;
+    mlir::Operation *DstDef = User->getOperand(1).getDefiningOp();
+    if (!DstDef || DstDef->getName().getStringRef() != "cir.alloca")
+      return false;
+  }
+  return true;
+}
+
 } // namespace
 
 int Rewriter::injectDefinition(mlir::ModuleOp Input,
@@ -149,10 +164,21 @@ int Rewriter::replace(Rewrite &Rewrite) {
   if (!Func)
     return 1;
 
-  // Verify every matched operand can be materialized outside Target before
-  // mutating the module.
-  for (mlir::Value Operand : Operands) {
-    if (!canHoistOutsideRoot(Operand, Target))
+  auto FuncArgs = Func.getArguments();
+  if (Operands.size() != FuncArgs.size())
+    return 1;
+
+  bool isCIR = (Target->getName().getDialectNamespace() == "cir");
+
+  // Verify every bound operand can be materialized outside Target, and every
+  // unbound operand is only used in dead-on-entry CIR init stores.
+  for (size_t i = 0; i < Operands.size(); ++i) {
+    if (!Operands[i]) {
+      if (!isCIR || !isOnlyInitStoredParam(FuncArgs[i]))
+        return 1;
+      continue;
+    }
+    if (!canHoistOutsideRoot(Operands[i], Target))
       return 1;
   }
 
@@ -165,14 +191,19 @@ int Rewriter::replace(Rewrite &Rewrite) {
   // Create map of values
   mlir::IRMapping Mapper;
   mlir::IRMapping HoistMapper;
-  auto FuncArgs = Func.getArguments();
 
   // Keep pattern operations that will not be cloned (empty by default)
   llvm::SmallPtrSet<mlir::Operation *, 4> OpsToSkip;
 
-  bool isCIR = (Target->getName().getDialectNamespace() == "cir");
-
   for (size_t i = 0; i < Operands.size(); ++i) {
+    // Unbound scratch parameter (e.g., v0/v1 overwritten inside the loop):
+    // keep its cir.alloca as a local variable and skip the initial cir.store.
+    if (!Operands[i]) {
+      for (mlir::OpOperand &ArgUse : FuncArgs[i].getUses())
+        OpsToSkip.insert(ArgUse.getOwner());
+      continue;
+    }
+
     mlir::Value InputVal =
         hoistValueBeforeRoot(Operands[i], Target, OpBuilder, HoistMapper);
     Mapper.map(FuncArgs[i], InputVal);

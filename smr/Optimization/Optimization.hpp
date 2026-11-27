@@ -25,7 +25,7 @@ enum Opt {
   MEM2REG,
   FAST_MATH,
   FUSION,
-  FISSION
+  FISSION,
   UNROLL_FULL
 };
 
@@ -51,7 +51,7 @@ const std::array<OptimizationInfo, 15> Optimizations = {{
     {MEM2REG, "mem2reg", "Promote memory allocations to SSA registers"},
     {FAST_MATH, "fast_math", "Fast math optimizations"},
     {FUSION, "fusion", "Loop fusion optimization"},
-    {FISSION, "fission", "Loop fission optimization"}
+    {FISSION, "fission", "Loop fission optimization"},
     {UNROLL_FULL, "unroll_full", "Full unrolling of loops with a small known trip count"}
 }};
 
